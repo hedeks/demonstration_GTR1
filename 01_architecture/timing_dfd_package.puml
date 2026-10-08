@@ -1,0 +1,37 @@
+@startuml Timing_DFD_Package
+skinparam componentStyle uml2
+
+title Архитектура (Package, DFD, Timing)
+
+package "Core System (C++)" {
+  [Dataset Player] -right-> [SLGW] : "RGB-D Stream (33ms)"
+  [SLGW] -right-> [MP10 Space] : "Voxel Update (5ms)"
+  
+  [SLGW] -down-> [CNN1 Worker] : "Image Bytes (Drop Latest)"
+}
+
+package "ML Service (Python)" {
+  [CNN1 Worker] -up-> [MP11 Manager] : "BBox + Embeddings (100ms)"
+}
+
+package "Behavior & Execution" {
+  [MTV1 Motivator] -right-> [PRD1 Predictor] : "Goal UUID"
+  [MP11 Manager] -down-> [SPL1 Splicer] : "New Invariant Trigger"
+  
+  [PRD1 Predictor] -down-> [SPL1 Splicer] : "Form Splices"
+  [SPL1 Splicer] -left-> [MP10 Space] : "Raycast (2ms)"
+}
+
+note bottom of [SLGW]
+  Timing: 30 FPS (33ms)
+end note
+
+note bottom of [CNN1 Worker]
+  Timing: 10 FPS (100ms)
+end note
+
+note bottom of [SPL1 Splicer]
+  Timing: 50 Hz (20ms)
+end note
+
+@enduml

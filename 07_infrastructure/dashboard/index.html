@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GTR1 Neuro-Symbolic Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        
+        <!-- Header -->
+        <header class="glass-panel header">
+            <div class="brand">
+                <h1>GTR1 <span>MVP</span></h1>
+                <div class="status-indicator online"></div>
+                <span>CORE ONLINE</span>
+            </div>
+            
+            <div class="system-metrics">
+                <div class="metric"><span class="label">FPS</span><span class="value" id="fps-val">30</span></div>
+                <div class="metric"><span class="label">IPC Latency</span><span class="value" id="ping-val">12ms</span></div>
+                <div class="metric"><span class="label">Voxels (MP10)</span><span class="value" id="voxel-val">1,204</span></div>
+            </div>
+            
+            <div class="active-goal">
+                <span class="label">MTV1 GOAL:</span>
+                <span class="goal-text">FIND_CUP (Urgency: 0.8)</span>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <main class="grid-layout">
+            
+            <!-- Left: 2D Computer Vision (CNN1 / MP11) -->
+            <section class="glass-panel view-panel" id="cv-panel">
+                <div class="panel-header">
+                    <h2>2D Ingestion (CNN1 + MP11)</h2>
+                    <div class="pulse-ring"></div>
+                </div>
+                <div class="view-content 2d-view">
+                    <!-- Эмуляция видеопотока -->
+                    <div class="video-feed" id="video-feed" style="position: relative;">
+                        <p class="placeholder-text" id="stream-placeholder">Awaiting RGB Stream...</p>
+                        <img id="video-img" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1;" />
+                        <canvas id="cv-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2;"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right: 3D Memory & Pathfinding (MP10 + PRD1) -->
+            <section class="glass-panel view-panel" id="memory-panel">
+                <div class="panel-header">
+                    <h2>3D Space & Routing (MP10 + MP13)</h2>
+                    <div class="tools">
+                        <button class="btn btn-sm" id="follow-agent-btn">Follow Agent</button>
+                        <button class="btn btn-sm" id="reset-view-btn">Reset View</button>
+                    </div>
+                </div>
+                <div class="view-content" id="three-container">
+                    <!-- Three.js Canvas will be injected here -->
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Bottom: Trace Logs -->
+        <footer class="glass-panel logs-panel">
+            <div class="panel-header">
+                <h2>System Trace Log (TRL1)</h2>
+                <div class="log-filters">
+                    <span class="filter active slgw">SLGW</span>
+                    <span class="filter active cnn1">CNN1</span>
+                    <span class="filter active spl1">SPL1</span>
+                    <span class="filter active prd1">PRD1</span>
+                </div>
+            </div>
+            <div class="terminal" id="terminal">
+                <div class="log-line sys">[SYSTEM] Dashboard initialized. Waiting for ZMQ-WS Bridge...</div>
+            </div>
+        </footer>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

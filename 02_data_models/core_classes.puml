@@ -1,0 +1,64 @@
+@startuml core_classes
+skinparam classAttributeIconSize 0
+skinparam BoxPadding 10
+
+package "GTR1 Core Memory Structures (C++)" {
+
+    abstract class ValiBase {
+        + uuid: std::string
+        + is_active: bool
+        + valences: std::vector<std::string>
+        --
+        + ValiBase(id: std::string)
+        + virtual ~ValiBase() = default
+        + bool has_open_valences() const
+        + void close_valence(size_t index, const std::string& target_uuid)
+    }
+
+    class MP10Space {
+        + map_id: std::string
+        + occupancy_grid: std::shared_ptr<octomap::OcTree>
+        + current_pose: Eigen::Matrix4f
+        --
+        + bool raycast(const Eigen::Vector3f& origin, const Eigen::Vector3f& target, Eigen::Vector3f& hit_point) const
+        + void update_pose(const Eigen::Matrix4f& pose)
+    }
+
+    class MP11Object {
+        + feature_embedding: std::array<float, 512>
+        + spatial_anchor: Eigen::Vector3f
+        + bounding_box: Box3D
+        + class_label_id: std::string
+        --
+        + float compute_similarity(const MP11Object& other) const
+    }
+
+    enum OprnStatus {
+        PENDING
+        VALIDATED
+        COLLISION
+        EXECUTED
+    }
+
+    class MP12Oprn {
+        + subject_ref: std::string
+        + target_ref: std::string
+        + b_vector: Eigen::Vector3f
+        + status: OprnStatus
+        --
+        + void calculate_b_vector(const MP11Object& subject, const MP11Object& target)
+    }
+
+    class MP13Blom {
+        + oprn_sequence: std::vector<std::string>
+        + is_complete: bool
+        + outcome_marker: float
+        --
+        + void append_oprn(const std::string& oprn_uuid)
+    }
+
+    ValiBase <|-- MP11Object
+    ValiBase <|-- MP12Oprn
+    ValiBase <|-- MP13Blom
+}
+@enduml

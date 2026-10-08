@@ -1,0 +1,17 @@
+# Build directories
+build/
+bin/
+*.exe
+./07_infrastructure/datasets/
+# Python caches
+__pycache__/
+*.pyc
+src/ml_service/*_pb2.py
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/

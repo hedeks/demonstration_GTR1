@@ -1,0 +1,18 @@
+@startuml MP12_State_Machine
+skinparam StateBackgroundColor LightBlue
+skinparam StateBorderColor DarkBlue
+
+title Диаграмма Состояний (FSM) для Сплайса (MP12_OPRN)
+
+[*] --> PENDING : Создан (Связка UUID Субъекта и Объекта)
+
+PENDING --> VALIDATED : Raycast [путь свободен]
+PENDING --> COLLISION : Raycast [пересечение с вокселем MP10]
+
+VALIDATED --> EXECUTED : Успешная отработка команд моторами (OP13)
+VALIDATED --> COLLISION : Динамическое препятствие (прерывание)
+
+COLLISION --> [*] : Отбрасывается планировщиком (PRD1)
+EXECUTED --> [*] : Сплайс переносится в лог (TRL1) с позитивным маркером
+
+@enduml

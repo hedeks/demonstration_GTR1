@@ -1,0 +1,37 @@
+@startuml Deployment_Architecture
+skinparam nodeBackgroundColor white
+skinparam componentStyle uml2
+
+title Диаграмма Развертывания и IPC (Deployment & Communication)
+
+node "Host System (Ubuntu 22.04 / WSL2)" {
+  
+  node "Docker: gativus-gtr1-mvp (Fat Container)" {
+    
+    package "C++ Core (High Performance)" {
+      [Dataset Player] --> [SLGW (SLAM)] : RGB-D (30 FPS)
+      [SLGW (SLAM)] --> [MP10 / MP11 / MP12 / MP13] : In-memory (Shared Pointers)
+      [SPL1 (Splicer)] <--> [MP10 / MP11 / MP12 / MP13]
+      [PRD1 (Predictor)] <--> [MP10 / MP11 / MP12 / MP13]
+      
+      portout "ZeroMQ (REQ)" as ZMQ_REQ
+      portin "ZeroMQ (PUB)" as ZMQ_PUB
+    }
+    
+    package "Python ML Service" {
+      component "CNN1 Worker (YOLO + CLIP)" as CNN1
+      portin "ZeroMQ (REP)" as ZMQ_REP
+    }
+    
+    ZMQ_REQ <--> ZMQ_REP : "Protobuf Messages (IPC)\n< 100ms Latency"
+    
+  }
+  
+  node "User Browser" {
+    [Web Dashboard (Three.js)]
+  }
+  
+  ZMQ_PUB --> [Web Dashboard (Three.js)] : "WebSockets (Trace ID & Voxels)"
+}
+
+@enduml

@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package gtr1.models;
+
+// 1. Общие геометрические примитивы
+message Vector3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message Matrix4x4 {
+  // Хранит 16 элементов матрицы трансформации SE(3) в row-major порядке
+  repeated float data = 1; 
+}
+
+message Box3D {
+  Vector3 center = 1;
+  Vector3 size = 2;
+}
+
+// 2. Базовый абстрактный класс (Композиция вместо наследования)
+message ValiBase {
+  string uuid = 1;
+  bool is_active = 2;
+  // Список UUID. Открытая валентность может быть представлена пустой строкой ""
+  repeated string valences = 3; 
+}
+
+// 3. MP10: База / Пространство (Облако точек / OctoMap)
+message MP10Space {
+  string map_id = 1;
+  // Сериализованное бинарное представление дерева (OctoMap)
+  bytes occupancy_grid_data = 2; 
+  // Текущее положение субъекта (SLGW/SLAM)
+  Matrix4x4 current_pose = 3;    
+}
+
+// 4. MP11: Объекты (Инварианты)
+message MP11Object {
+  ValiBase base = 1;
+  // Вектор признаков. Ожидается размерность 512 (CLIP/YOLO embedding)
+  repeated float feature_embedding = 2; 
+  // Координата якоря объекта в MP10
+  Vector3 spatial_anchor = 3;
+  Box3D bounding_box = 4;
+  string class_label_id = 5;
+}
+
+// 5. Статусы жизненного цикла Сплайса
+enum OprnStatus {
+  PENDING = 0;
+  VALIDATED = 1;
+  COLLISION = 2;
+  EXECUTED = 3;
+}
+
+// 6. MP12: Сплайсы / Триплеты OPRN (Субъект -> Движение -> Объект)
+message MP12Oprn {
+  ValiBase base = 1;
+  string subject_ref = 2; // UUID субъекта (или MP11)
+  string target_ref = 3;  // UUID цели (MP11)
+  Vector3 b_vector = 4;   // Пространственно-поведенческое смещение
+  OprnStatus status = 5;
+}
+
+// 7. MP13: Схемы событий / Графы (BLOM)
+message MP13Blom {
+  ValiBase base = 1;
+  // Упрощенное представление графа - последовательность UUID сплайсов
+  repeated string oprn_sequence = 2; 
+  bool is_complete = 3;
+  float outcome_marker = 4; // Весовой коэффициент успеха (дофаминовый маркер)
+}
+
+// 8. Целеполагание
+message MTV1Goal {
+  Vector3 target_distance_vector = 1;
+  float urgency = 2;
+}

@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package gtr1.ipc;
+
+import "gtr1_structures.proto";
+
+// Метаданные времени и фрейма для синхронизации
+message FrameMetadata {
+  double timestamp = 1;
+  uint64 frame_id = 2;
+  string trace_id = 3; // Для сквозного логгирования (meta_tasks.md)
+}
+
+// --- IPC: Сообщения для каскада CD11 (CNN1 ML Service) ---
+
+message DetectionRequest {
+  FrameMetadata meta = 1;
+  // Сырые данные RGB-кадра (JPG или PNG) для Python-сервиса
+  bytes rgb_image_data = 2; 
+}
+
+message DetectionResponse {
+  FrameMetadata meta = 1;
+  // Список найденных инвариантов. C++ Ядро разрешит коллизии.
+  repeated gtr1.models.MP11Object detected_objects = 2;
+}
+
+// --- IPC: Сообщения для Синтаксического предиктора (SPL1) ---
+
+message RaycastRequest {
+  FrameMetadata meta = 1;
+  gtr1.models.Vector3 origin = 2;
+  gtr1.models.Vector3 target = 3;
+}
+
+message RaycastResponse {
+  FrameMetadata meta = 1;
+  bool is_free = 2;
+  // Точка столкновения с препятствием, если путь закрыт
+  gtr1.models.Vector3 hit_point = 3; 
+}
+
+// --- IPC: Команды выполнения (OP13 -> Моторы / Симулятор) ---
+
+message KinematicCommand {
+  FrameMetadata meta = 1;
+  gtr1.models.Vector3 velocity = 2;
+  gtr1.models.Vector3 angular_velocity = 3;
+}
