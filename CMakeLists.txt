@@ -24,9 +24,18 @@ file(GLOB_RECURSE CORE_SRCS "src/core/*.cpp" "src/operators/*.cpp" "07_infrastru
 # Define the shared library for the GTR1 Core
 add_library(gtr1_core SHARED ${CORE_SRCS} ${PROTO_SRCS})
 
+# Compiler warnings
+if(MSVC)
+    target_compile_options(gtr1_core PRIVATE /W4)
+else()
+    target_compile_options(gtr1_core PRIVATE -Wall -Wextra)
+endif()
+
 # Include directories
 target_include_directories(gtr1_core PUBLIC 
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/core/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/operators>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/07_infrastructure>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     ${OpenCV_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
@@ -61,5 +70,55 @@ enable_testing()
 add_executable(gtr1_tests tests/test_gtr1.cpp)
 target_link_libraries(gtr1_tests PUBLIC gtr1_core gtest_main)
 
+add_executable(test_data_models tests/test_data_models.cpp)
+target_link_libraries(test_data_models PUBLIC gtr1_core gtest_main)
+if(NOT MSVC)
+    target_compile_options(test_data_models PRIVATE -Wall -Wextra -Werror)
+endif()
+
+add_executable(test_slgw tests/test_slgw.cpp)
+target_link_libraries(test_slgw PUBLIC gtr1_core gtest_main)
+if(NOT MSVC)
+    target_compile_options(test_slgw PRIVATE -Wall -Wextra)
+endif()
+
+add_executable(test_mp11_merge tests/test_mp11_merge.cpp)
+target_link_libraries(test_mp11_merge PUBLIC gtr1_core gtest_main)
+if(NOT MSVC)
+    target_compile_options(test_mp11_merge PRIVATE -Wall -Wextra -Werror)
+endif()
+
+add_executable(test_rtr_cycle tests/test_rtr_cycle.cpp)
+target_link_libraries(test_rtr_cycle PUBLIC gtr1_core gtest_main)
+if(NOT MSVC)
+    target_compile_options(test_rtr_cycle PRIVATE -Wall -Wextra -Werror)
+endif()
+
+add_executable(test_golden_dataset tests/test_golden_dataset.cpp)
+target_link_libraries(test_golden_dataset PUBLIC gtr1_core gtest_main)
+if(NOT MSVC)
+    target_compile_options(test_golden_dataset PRIVATE -Wall -Wextra)
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(gtr1_tests)
+gtest_discover_tests(test_data_models)
+gtest_discover_tests(test_slgw)
+gtest_discover_tests(test_mp11_merge)
+gtest_discover_tests(test_rtr_cycle)
+gtest_discover_tests(test_golden_dataset)
+add_executable(test_pybullet_sim tests/test_pybullet_sim.cpp)
+target_link_libraries(test_pybullet_sim PUBLIC gtr1_core gtest_main)
+if(NOT MSVC)
+    target_compile_options(test_pybullet_sim PRIVATE -Wall -Wextra)
+endif()
+
+gtest_discover_tests(test_pybullet_sim)
+
+add_executable(test_filters tests/test_filters.cpp)
+target_link_libraries(test_filters PUBLIC gtr1_core gtest_main)
+if(NOT MSVC)
+    target_compile_options(test_filters PRIVATE -Wall -Wextra)
+endif()
+
+gtest_discover_tests(test_filters)

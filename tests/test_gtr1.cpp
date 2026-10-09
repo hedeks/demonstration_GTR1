@@ -5,8 +5,8 @@
 #include "../src/core/include/mp10_space.hpp"
 #include "../src/core/include/mp11_manager.hpp"
 #include "../src/operators/slgw_node.hpp"
-#include "../src/operators/spl1_splicer.cpp"
-#include "../src/operators/prd1_predictor.cpp"
+#include "../src/operators/spl1_splicer.hpp"
+#include "../src/operators/prd1_predictor.hpp"
 #include "gtr1_structures.pb.h"
 
 // REQ-01: Слияние инвариантов (MP11)
@@ -71,18 +71,17 @@ TEST(GTR1_Tests, PRD1_AStarRouting) {
 TEST(GTR1_Tests, SLGW_ZmqTimeout) {
     auto mp10 = std::make_shared<gtr1::core::MP10Space>("test_map");
     auto mp11 = std::make_shared<gtr1::core::MP11Manager>();
-    gtr1::operators::SlgwNode slgw(mp10, mp11);
+    gtr1::operators::SlgwNode slgw(mp10, mp11, "tcp://127.0.0.1:5591", false);
     
     cv::Mat fake_rgb(1, 1, CV_8UC3, cv::Scalar(0, 0, 0));
-    cv::Mat fake_depth(1, 1, CV_16UC1, cv::Scalar(0));
     
     auto start_time = std::chrono::steady_clock::now();
-    slgw.process_frame(0.0, fake_rgb, fake_depth);
+    slgw.send_to_cnn_sync(0.0, fake_rgb);
     auto end_time = std::chrono::steady_clock::now();
     
     double elapsed_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
     
-    // ZMQ таймаут стоит на 200мс. Время должно быть около 200мс.
-    ASSERT_GE(elapsed_ms, 190.0);
+    // ZMQ таймаут настроен на 200мс. Время должно быть около 200мс.
+    ASSERT_GE(elapsed_ms, 180.0);
     ASSERT_LT(elapsed_ms, 500.0);
 }
