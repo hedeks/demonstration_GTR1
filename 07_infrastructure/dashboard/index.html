@@ -24,13 +24,35 @@
             
             <div class="system-metrics">
                 <div class="metric"><span class="label">FPS</span><span class="value" id="fps-val">30</span></div>
+                <div class="metric"><span class="label">Mode</span><span class="value" id="mode-val">SIM</span></div>
+                <div class="metric"><span class="label">Tilt / Gyro</span><span class="value" id="gyro-val">0° / 0°</span></div>
                 <div class="metric"><span class="label">IPC Latency</span><span class="value" id="ping-val">12ms</span></div>
                 <div class="metric"><span class="label">Voxels (MP10)</span><span class="value" id="voxel-val">1,204</span></div>
+                <div class="metric"><span class="label">Position (XYZ)</span><span class="value" id="robot-pos-val" style="color: #45f3ff;">[0.00, 0.00, 0.00]</span></div>
+                <div class="metric"><span class="label">Yaw / Heading</span><span class="value" id="robot-yaw-val" style="color: #00ff88;">0.0°</span></div>
             </div>
             
+                        <button class="btn btn-sm btn-inspector" id="toggle-inspector-btn" title="Inspect MP11 Invariants, MP13 BLOM and MP12 OPRN hierarchy">
+                <span class="icon">🌿</span> <span>OPRN & Goals Inspector</span>
+                <span class="badge" id="inspector-badge">0 OPRN</span>
+            </button>
+
+            <div class="motion-controls">
+                <button class="btn btn-sm btn-stop" id="robot-stop-btn">🛑 STOP</button>
+                <div class="coord-nav-group">
+                    <span class="coord-lbl">Target:</span>
+                    <input type="number" id="nav-x" placeholder="X" step="0.2" value="2.0" class="coord-input" title="Target X [m]">
+                    <input type="number" id="nav-y" placeholder="Y" step="0.2" value="0.0" class="coord-input" title="Target Y [m]">
+                    <input type="number" id="nav-yaw" placeholder="Yaw" step="15" value="0" class="coord-input" title="Target Yaw [deg]">
+                    <button class="btn btn-sm btn-nav" id="btn-goto-coord" title="Navigate robot to coordinates">🚀 Go</button>
+                </div>
+            </div>
+
             <div class="active-goal">
                 <span class="label">MTV1 GOAL:</span>
-                <span class="goal-text">FIND_CUP (Urgency: 0.8)</span>
+                <span class="goal-text" id="goal-display">FIND_CUP (Urgency: 0.8)</span>
+                <input type="text" id="goal-input" placeholder="Set target..." style="margin-left:10px; padding: 2px 5px; border-radius:4px; border:none; background: rgba(255,255,255,0.1); color: white; width: 100px;">
+                <button class="btn btn-sm" id="set-goal-btn">Set</button>
             </div>
         </header>
 
@@ -63,6 +85,16 @@
                     </div>
                 </div>
                 <div class="view-content" id="three-container">
+                    <!-- Floating SE(3) Robot Pose HUD -->
+                    <div class="robot-hud-overlay" id="robot-hud">
+                        <div class="hud-header">
+                            <span class="hud-dot"></span>
+                            <span class="hud-title">ROBOT SE(3) POSE</span>
+                        </div>
+                        <div class="hud-item"><span class="hud-k">Pos:</span><span class="hud-v" id="hud-pos">X: +0.000m  Y: +0.000m  Z: +0.000m</span></div>
+                        <div class="hud-item"><span class="hud-k">Rot:</span><span class="hud-v" id="hud-rot">Yaw: 0.0°  Pitch: 0.0°  Roll: 0.0°</span></div>
+                        <div class="hud-item"><span class="hud-k">Quat:</span><span class="hud-v mono" id="hud-quat">[0.00, 0.00, 0.00, 1.00]</span></div>
+                    </div>
                     <!-- Three.js Canvas will be injected here -->
                 </div>
             </section>
@@ -87,6 +119,127 @@
 
     </div>
 
+
+    <!-- Neuro-Symbolic Inspector Modal / Drawer -->
+    <div class="ns-inspector-overlay" id="ns-inspector-overlay">
+        <div class="ns-inspector-drawer glass-panel" id="ns-inspector-drawer">
+            <div class="drawer-header">
+                <div class="drawer-title">
+                    <h2>🌿 Neuro-Symbolic Architecture Inspector</h2>
+                    <p class="subtitle">Hierarchical inspection of Active Goal (MTV1), Invariants (MP11), BLOM Event Chains (MP13), and OPRN Splices (MP12)</p>
+                </div>
+                <div class="drawer-actions">
+                    <span class="badge live-badge" id="rtr-mode-badge">SIM LIVE</span>
+                    <button class="btn btn-sm" id="close-inspector-btn">✕ Close</button>
+                </div>
+            </div>
+
+            <div class="drawer-tabs">
+                <button class="tab-btn active" data-tab="tab-oprn">🔗 Active BLOM & OPRN Tree</button>
+                <button class="tab-btn" data-tab="tab-goals">🎯 MP11 Goals & Invariants Tree</button>
+                <button class="tab-btn" data-tab="tab-history">📜 TRL1 Trajectory Experience</button>
+            </div>
+
+            <div class="drawer-body">
+                <!-- TAB 1: ACTIVE BLOM & OPRN TREE -->
+                <div class="tab-content active" id="tab-oprn">
+                    <div class="blom-hero-card" id="blom-hero-card">
+                        <div class="blom-meta">
+                            <div class="blom-title-row">
+                                <span class="label">ACTIVE BLOM:</span>
+                                <span class="blom-uuid" id="active-blom-uuid">None (Searching...)</span>
+                                <span class="blom-status-pill" id="active-blom-status">PENDING</span>
+                            </div>
+                            <div class="blom-metrics-grid">
+                                <div class="metric-card">
+                                    <span class="m-label">Outcome Marker</span>
+                                    <div class="outcome-bar-wrapper">
+                                        <div class="outcome-bar-fill" id="outcome-marker-bar" style="width: 0%;"></div>
+                                    </div>
+                                    <span class="m-val" id="outcome-marker-val">0.00</span>
+                                </div>
+                                <div class="metric-card">
+                                    <span class="m-label">OPRN Splices</span>
+                                    <span class="m-val" id="active-oprn-count">0 steps</span>
+                                </div>
+                                <div class="metric-card">
+                                    <span class="m-label">Target Distance</span>
+                                    <span class="m-val" id="active-goal-dist">-- m</span>
+                                </div>
+                                <div class="metric-card">
+                                    <span class="m-label">Target Class</span>
+                                    <span class="m-val highlight" id="active-goal-class">None</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tree-section-header">
+                        <h3>OPRN Splice Sequence (MP12 Directed Graph Chain)</h3>
+                        <span class="tree-hint">Inspecting b-vectors [Δx, Δy, Δz] & valence slots</span>
+                    </div>
+
+                    <div class="oprn-tree-container" id="oprn-tree-list">
+                        <div class="tree-empty-state">No active BLOM route. Waiting for target recognition...</div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: GOALS & INVARIANTS TREE -->
+                <div class="tab-content" id="tab-goals">
+                    <div class="goals-toolbar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <input type="text" id="filter-invariants" placeholder="Filter invariant classes (cup, chair, etc)..." style="padding:6px 12px; border-radius:6px; border:1px solid var(--glass-border); background:rgba(0,0,0,0.3); color:#fff; width:260px;">
+                        <span class="count-badge" id="invariants-count-badge" style="font-size:0.8rem; color:#8892b0;">0 Invariants</span>
+                    </div>
+                    <div class="invariants-grid" id="invariants-tree-list">
+                        <div class="tree-empty-state">No invariants crystallized in MP11 memory yet.</div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: TRL1 LOG HISTORY -->
+                <div class="tab-content" id="tab-history">
+                    <div class="history-list-container" id="trl1-history-list" style="display:flex; flex-direction:column; gap:10px;">
+                        <div class="tree-empty-state">TRL1 experience log empty. Completed paths will be stored here.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
+
+    <!-- Floating 3D Context Menu (Right Click) -->
+    <div class="scene-context-menu" id="scene-context-menu" style="display: none;">
+        <div class="context-menu-header">
+            <span class="context-coord-icon">📍</span>
+            <div class="context-coord-info">
+                <span class="context-point-title">3D Map Coordinate</span>
+                <span class="context-point-coords" id="ctx-coords">X: 0.00, Y: 0.00, Z: 0.00</span>
+            </div>
+        </div>
+        <div class="context-bvector-info" id="ctx-bvector-preview">
+            <span class="ctx-triplet-sub">agent_base</span>
+            <span class="ctx-triplet-arrow">──( ‖b‖: <b id="ctx-dist">0.00m</b> )──►</span>
+            <span class="ctx-triplet-tgt">Target</span>
+        </div>
+        <div class="context-menu-items">
+            <button class="context-menu-item item-primary" id="ctx-set-target">
+                <span class="item-icon">🎯</span>
+                <span class="item-text">Назначить цель (Set as Goal OPRN)</span>
+            </button>
+            <button class="context-menu-item" id="ctx-nav-here">
+                <span class="item-icon">🚀</span>
+                <span class="item-text">Направить робота сюда (Navigate Here)</span>
+            </button>
+            <button class="context-menu-item" id="ctx-focus-cam">
+                <span class="item-icon">🔍</span>
+                <span class="item-text">Осмотреть точку (Focus Camera)</span>
+            </button>
+            <button class="context-menu-item item-danger" id="ctx-stop-robot">
+                <span class="item-icon">🛑</span>
+                <span class="item-text">Экстренная остановка (Emergency Stop)</span>
+            </button>
+        </div>
+    </div>
+
 </body>
 </html>
