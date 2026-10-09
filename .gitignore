@@ -2,7 +2,11 @@
 build/
 bin/
 *.exe
-./07_infrastructure/datasets/
+
+# Testing & Logs
+Testing/
+*.log
+
 # Python caches
 __pycache__/
 *.pyc
