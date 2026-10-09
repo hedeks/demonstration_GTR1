@@ -1,27 +1,62 @@
 @startuml core_classes
 skinparam classAttributeIconSize 0
 skinparam BoxPadding 10
+skinparam monochrome false
+skinparam class {
+    BackgroundColor LightYellow
+    ArrowColor DarkSlateGray
+    BorderColor DarkSlateGray
+}
 
-package "GTR1 Core Memory Structures (C++)" {
+package "GTR1 Core Memory Structures (C++ Domain Model)" {
 
     abstract class ValiBase {
-        + uuid: std::string
-        + is_active: bool
-        + valences: std::vector<std::string>
+        # uuid_: std::string
+        # is_active_: bool
+        # valences_: std::vector<std::string>
+        # mutable mtx_: std::shared_mutex
         --
-        + ValiBase(id: std::string)
+        + ValiBase(id: std::string = "", num_valences: size_t = 0)
         + virtual ~ValiBase() = default
-        + bool has_open_valences() const
-        + void close_valence(size_t index, const std::string& target_uuid)
+        + uuid(): std::string
+        + set_uuid(id: const std::string&): void
+        + is_active(): bool
+        + set_active(active: bool): void
+        + has_open_valences(): bool
+        + open_valences_count(): size_t
+        + total_valences_count(): size_t
+        + close_valence(index: size_t, target_uuid: const std::string&): void
+        + open_valence(index: size_t): void
+        + get_valence(index: size_t): std::string
+        + is_valence_open(index: size_t): bool
+        + get_valences(): std::vector<std::string>
+        + add_valence_slot(): size_t
+        + resize_valences(count: size_t): void
+        + virtual to_proto(proto: gtr1::models::ValiBase&): void
+        + virtual from_proto(proto: const gtr1::models::ValiBase&): void
+        + {static} generate_uuid(): std::string
+        + {static} is_valid_uuid(str: const std::string&): bool
     }
 
     class MP10Space {
         + map_id: std::string
         + occupancy_grid: std::shared_ptr<octomap::OcTree>
         + current_pose: Eigen::Matrix4f
+        - mutable mtx_: std::shared_mutex
         --
-        + bool raycast(const Eigen::Vector3f& origin, const Eigen::Vector3f& target, Eigen::Vector3f& hit_point) const
-        + void update_pose(const Eigen::Matrix4f& pose)
+        + MP10Space(id: std::string, resolution: double = 0.05)
+        + raycast(origin: const Eigen::Vector3f&, target: const Eigen::Vector3f&, hit_point: Eigen::Vector3f&): bool
+        + is_node_free(pos: const Eigen::Vector3f&): bool
+        + get_occupied_voxels(): std::vector<Eigen::Vector3f>
+        + update_pose(pose: const Eigen::Matrix4f&): void
+        + get_pose(): Eigen::Matrix4f
+        + to_proto(proto: gtr1::models::MP10Space&): void
+        + from_proto(proto: const gtr1::models::MP10Space&): void
+    }
+
+    class Box3D <<struct>> {
+        + center: Eigen::Vector3f
+        + size: Eigen::Vector3f
     }
 
     class MP11Object {
@@ -30,10 +65,14 @@ package "GTR1 Core Memory Structures (C++)" {
         + bounding_box: Box3D
         + class_label_id: std::string
         --
-        + float compute_similarity(const MP11Object& other) const
+        + MP11Object(id: std::string = "", num_valences: size_t = 0)
+        + compute_similarity(other: const MP11Object&): float
+        + distance_to(other: const MP11Object&): float
+        + to_proto(proto: gtr1::models::MP11Object&): void
+        + {static} from_proto(proto: const gtr1::models::MP11Object&): MP11Object
     }
 
-    enum OprnStatus {
+    enum OprnStatus <<enumeration>> {
         PENDING
         VALIDATED
         COLLISION
@@ -46,7 +85,12 @@ package "GTR1 Core Memory Structures (C++)" {
         + b_vector: Eigen::Vector3f
         + status: OprnStatus
         --
-        + void calculate_b_vector(const MP11Object& subject, const MP11Object& target)
+        + MP12Oprn(id: std::string = "", subject: std::string = "", target: std::string = "")
+        + calculate_b_vector(subject: const MP11Object&, target: const MP11Object&): void
+        + can_transition_to(new_status: OprnStatus): bool
+        + transition_to(new_status: OprnStatus): void
+        + to_proto(proto: gtr1::models::MP12Oprn&): void
+        + {static} from_proto(proto: const gtr1::models::MP12Oprn&): MP12Oprn
     }
 
     class MP13Blom {
@@ -54,11 +98,39 @@ package "GTR1 Core Memory Structures (C++)" {
         + is_complete: bool
         + outcome_marker: float
         --
-        + void append_oprn(const std::string& oprn_uuid)
+        + MP13Blom(id: std::string = "")
+        + append_oprn(oprn_uuid: const std::string&): void
+        + set_outcome_marker(score: float): void
+        + get_outcome_marker(): float
+        + to_proto(proto: gtr1::models::MP13Blom&): void
+        + {static} from_proto(proto: const gtr1::models::MP13Blom&): MP13Blom
     }
 
-    ValiBase <|-- MP11Object
-    ValiBase <|-- MP12Oprn
-    ValiBase <|-- MP13Blom
+    class TRL1Log {
+        - storage_: std::unordered_map<std::string, MP13Blom>
+        - goal_index_: std::unordered_map<std::string, std::vector<std::string>>
+        - mutable mtx_: std::shared_mutex
+        --
+        + TRL1Log()
+        + record_trajectory(blom: const MP13Blom&, goal_class: const std::string& = ""): void
+        + find_best_trajectory(min_outcome: float = 0.8f): std::optional<MP13Blom>
+        + find_trajectories_by_goal(goal_class: const std::string&, min_outcome: float = 0.0f): std::vector<MP13Blom>
+        + get_trajectory(uuid: const std::string&): std::optional<MP13Blom>
+        + update_outcome(uuid: const std::string&, outcome_marker: float): bool
+        + size(): size_t
+        + clear(): void
+        + get_all_trajectories(): std::vector<MP13Blom>
+    }
+
+    ValiBase <|-- MP11Object : inherits
+    ValiBase <|-- MP12Oprn : inherits
+    ValiBase <|-- MP13Blom : inherits
+
+    MP11Object *-- Box3D : contains
+    MP12Oprn --> OprnStatus : uses
+    MP12Oprn ..> MP11Object : binds subject/target
+    MP13Blom o-- MP12Oprn : sequences
+    TRL1Log o-- MP13Blom : caches
+    MP10Space <.. MP12Oprn : raycast validation
 }
 @enduml

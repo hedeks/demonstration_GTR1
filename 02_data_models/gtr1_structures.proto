@@ -23,7 +23,7 @@ message Box3D {
 message ValiBase {
   string uuid = 1;
   bool is_active = 2;
-  // Список UUID. Открытая валентность может быть представлена пустой строкой ""
+  // Список UUID. Открытая валентность представлена пустой строкой ""
   repeated string valences = 3; 
 }
 
@@ -73,8 +73,17 @@ message MP13Blom {
   float outcome_marker = 4; // Весовой коэффициент успеха (дофаминовый маркер)
 }
 
-// 8. Целеполагание
+// 8. Целеполагание (MTV1)
 message MTV1Goal {
   Vector3 target_distance_vector = 1;
   float urgency = 2;
+  string target_class_label = 3;
+}
+
+// 9. Запись траекторного хранилища опыта (TRL1)
+message TRL1Entry {
+  MP13Blom blom = 1;
+  double timestamp = 2;
+  float outcome_marker = 3;
+  string goal_class = 4;
 }

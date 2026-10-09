@@ -8,20 +8,19 @@ import "gtr1_structures.proto";
 message FrameMetadata {
   double timestamp = 1;
   uint64 frame_id = 2;
-  string trace_id = 3; // Для сквозного логгирования (meta_tasks.md)
+  string trace_id = 3;
 }
 
 // --- IPC: Сообщения для каскада CD11 (CNN1 ML Service) ---
 
 message DetectionRequest {
   FrameMetadata meta = 1;
-  // Сырые данные RGB-кадра (JPG или PNG) для Python-сервиса
   bytes rgb_image_data = 2; 
+  bytes depth_image_data = 3;
 }
 
 message DetectionResponse {
   FrameMetadata meta = 1;
-  // Список найденных инвариантов. C++ Ядро разрешит коллизии.
   repeated gtr1.models.MP11Object detected_objects = 2;
 }
 
@@ -36,7 +35,6 @@ message RaycastRequest {
 message RaycastResponse {
   FrameMetadata meta = 1;
   bool is_free = 2;
-  // Точка столкновения с препятствием, если путь закрыт
   gtr1.models.Vector3 hit_point = 3; 
 }
 
@@ -46,4 +44,19 @@ message KinematicCommand {
   FrameMetadata meta = 1;
   gtr1.models.Vector3 velocity = 2;
   gtr1.models.Vector3 angular_velocity = 3;
+}
+
+// --- IPC: Сенсорный стрим симулятора (PyBullet -> SLGW) ---
+
+message SensorFrame {
+  FrameMetadata meta = 1;
+  bytes rgb_image_data = 2;              // Сжатый RGB-кадр (JPEG)
+  bytes depth_image_data = 3;            // Сжатый 16-битный Depth-кадр (PNG, мм)
+  gtr1.models.Matrix4x4 camera_pose = 4; // Мировая 6-DOF поза камеры (SE3)
+  bool is_clean_mode = 5;                // true: идеальный Z-буфер; false: эмуляция шума сенсора
+}
+
+message SimulatorControl {
+  bool reset_scene = 1;
+  bool set_clean_mode = 2;
 }
