@@ -24,10 +24,21 @@ class Prd1Predictor {
 private:
     std::shared_ptr<core::MP10Space> mp10_;
     std::shared_ptr<core::TRL1Log> trl1_log_;
+    float robot_radius_{0.22f}; // Физический радиус цилиндра шасси (22 см)
+    float robot_height_{0.75f}; // Полная высота робота от пола (75 см)
 
 public:
     explicit Prd1Predictor(std::shared_ptr<core::MP10Space> mp10,
-                           std::shared_ptr<core::TRL1Log> trl1_log = nullptr);
+                           std::shared_ptr<core::TRL1Log> trl1_log = nullptr,
+                           float robot_radius = 0.22f,
+                           float robot_height = 0.75f);
+
+    void set_robot_dimensions(float radius, float height) {
+        robot_radius_ = radius;
+        robot_height_ = height;
+    }
+    float get_robot_radius() const { return robot_radius_; }
+    float get_robot_height() const { return robot_height_; }
 
     /**
      * @brief Доменный метод: планирование цепочки сплайсов (MP13Blom).
@@ -47,6 +58,18 @@ public:
     /**
      * @brief Адаптер для Protobuf DTO (обратная совместимость).
      */
+    /**
+     * @brief Динамическое локальное перепланирование от текущей достигнутой точки.
+     * Сохраняет историю ранее выполненных OPRN (со статусом EXECUTED)
+     * и строит обход препятствия через A* от текущего положения агента.
+     */
+    std::shared_ptr<core::MP13Blom> replan_from_current(
+        std::shared_ptr<core::MP13Blom> current_blom,
+        const Eigen::Vector3f& current_pos,
+        const Eigen::Vector3f& target_pos,
+        const std::string& target_uuid,
+        const std::string& goal_class = "");
+
     std::shared_ptr<gtr1::models::MP13Blom> build_event_chain(
         const std::string& target_uuid,
         const Eigen::Vector3f& start_pos,

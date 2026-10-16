@@ -285,8 +285,10 @@ int main(int argc, char** argv) {
             std::shared_ptr<gtr1::core::MP13Blom> sim_active_blom = nullptr;
             bool is_manual_stopped = false;
             bool has_manual_nav_target = false;
-            Eigen::Vector3f manual_nav_pos{0.0f, 0.0f, 0.0f};
+            Eigen::Vector3f manual_nav_pos{0.0f, 0.0f, 0.20f};
             float manual_nav_yaw{0.0f};
+            Eigen::Vector3f active_blom_origin{0.0f, 0.0f, 0.20f};
+            std::string active_blom_target_key = "";
 
             GTR_TRACE("INIT", "SIM", "Closed-loop PyBullet pipeline started.");
 
@@ -338,7 +340,7 @@ int main(int argc, char** argv) {
                             float nx = std::stof(nav_str.substr(0, c1));
                             float ny = (c2 != std::string::npos) ? std::stof(nav_str.substr(c1 + 1, c2 - c1 - 1)) : std::stof(nav_str.substr(c1 + 1));
                             float nyaw = (c2 != std::string::npos) ? std::stof(nav_str.substr(c2 + 1)) * M_PI / 180.0f : 0.0f;
-                            manual_nav_pos = Eigen::Vector3f(nx, ny, 0.0f);
+                            manual_nav_pos = Eigen::Vector3f(nx, ny, 0.20f);
                             manual_nav_yaw = nyaw;
                             has_manual_nav_target = true;
                             is_manual_stopped = false;
@@ -354,7 +356,11 @@ int main(int argc, char** argv) {
                 slgw->process_frame(ts, rgb, depth, pose);
 
                 // 2. Сбор состояния для RTR и телеметрии
-                Eigen::Vector3f agent_pos = mp10->get_pose().block<3,1>(0,3);
+                Eigen::Vector3f cam_pos = mp10->get_pose().block<3,1>(0,3);
+                Eigen::Vector3f agent_pos = cam_pos;
+                if (use_sim) {
+                    agent_pos.z() = 0.20f; // Якорная точка шасси робота на высоте пола (0.20м)
+                }
                 auto invariants = mp11->get_domain_invariants();
 
                 if (frame_counter % 5 == 0) {
@@ -382,6 +388,11 @@ int main(int argc, char** argv) {
                     float dist_final = (manual_nav_pos.head<2>() - agent_pos.head<2>()).norm();
                     float current_yaw = std::atan2(pose(1,2), pose(0,2));
 
+                    if (active_blom_target_key != "manual_waypoint") {
+                        active_blom_origin = agent_pos;
+                        active_blom_target_key = "manual_waypoint";
+                    }
+
                     gtr1::core::MP11Object subject("agent_base");
                     subject.bounding_box.center = agent_pos;
                     gtr1::core::MP11Object target_obj("manual_waypoint");
@@ -391,14 +402,19 @@ int main(int argc, char** argv) {
                     auto blom = prd1->build_event_chain("manual_waypoint", agent_pos, manual_nav_pos, splices, "waypoint");
                     sim_active_blom = blom;
 
-                    // Определяем цель руления: следующий waypoint в цепочке OPRN
+                    if (sim_active_blom) {
+                        sim_active_blom->update_oprn_progress(agent_pos, active_blom_origin, 0.25f);
+                    }
+
+                    // Определяем цель руления: следующий незавершенный waypoint в цепочке OPRN
                     Eigen::Vector3f steer_target = manual_nav_pos;
                     if (blom && !blom->oprn_items.empty()) {
-                        Eigen::Vector3f wp_accum = agent_pos;
+                        Eigen::Vector3f wp_accum = active_blom_origin;
                         for (const auto& item : blom->oprn_items) {
                             if (!item) continue;
                             wp_accum += item->b_vector;
-                            if ((wp_accum.head<2>() - agent_pos.head<2>()).norm() > 0.25f) {
+                            if (item->status != gtr1::core::OprnStatus::EXECUTED &&
+                                (wp_accum.head<2>() - agent_pos.head<2>()).norm() > 0.22f) {
                                 steer_target = wp_accum;
                                 break;
                             }
@@ -430,6 +446,11 @@ int main(int argc, char** argv) {
                         } else {
                             receiver.send_command(0.0f, 0.0f, 0.0f, trace_id);
                             has_manual_nav_target = false;
+                            if (sim_active_blom) {
+                                sim_active_blom->close_as_successful(1.0f);
+                                prd1->save_to_log(sim_active_blom, "manual_waypoint");
+                                GTR_TRACE(trace_id, "TRL1", "Manual waypoint reached! BLOM persisted in TRL1Log (outcome_marker=1.0).");
+                            }
                             GTR_TRACE(trace_id, "OP13", "Target coordinate and orientation achieved! Holding position.");
                         }
                     }
@@ -455,21 +476,43 @@ int main(int argc, char** argv) {
                             auto blom = prd1->build_event_chain(inv.uuid(), agent_pos, inv.bounding_box.center, splices, mtv1->get_target_class());
                             sim_active_blom = blom;
 
+                            if (active_blom_target_key != inv.uuid()) {
+                                active_blom_origin = agent_pos;
+                                active_blom_target_key = inv.uuid();
+                            }
+
                             if (blom && blom->is_complete) {
+                                // Пошаговый FSM-трекинг OPRN
+                                blom->update_oprn_progress(agent_pos, active_blom_origin, 0.25f);
+
                                 telemetry.send_path(agent_pos, inv.bounding_box.center);
                                 telemetry.send_voxel(inv.bounding_box.center.x(), inv.bounding_box.center.y(), inv.bounding_box.center.z());
 
-                                // Определяем цель руления: следующий waypoint в цепочке OPRN
+                                // Определяем цель руления: следующий незавершенный waypoint в цепочке OPRN
                                 Eigen::Vector3f steer_target = inv.bounding_box.center;
                                 if (!blom->oprn_items.empty()) {
-                                    Eigen::Vector3f wp_accum = agent_pos;
+                                    Eigen::Vector3f wp_accum = active_blom_origin;
                                     for (const auto& item : blom->oprn_items) {
                                         if (!item) continue;
                                         wp_accum += item->b_vector;
-                                        if ((wp_accum.head<2>() - agent_pos.head<2>()).norm() > 0.28f) {
+                                        if (item->status != gtr1::core::OprnStatus::EXECUTED &&
+                                            (wp_accum.head<2>() - agent_pos.head<2>()).norm() > 0.25f) {
                                             steer_target = wp_accum;
                                             break;
                                         }
+                                    }
+                                }
+
+                                // Динамическое перепланирование при препятствии перед активным путем
+                                Eigen::Vector3f hit_pt;
+                                if (!mp10->raycast(agent_pos, steer_target, hit_pt) && (steer_target - agent_pos).norm() > 0.35f) {
+                                    GTR_TRACE(trace_id, "PRD1", "Dynamic obstacle ahead! Local replanning from current waypoint...");
+                                    auto replanned = prd1->replan_from_current(blom, agent_pos, inv.bounding_box.center, inv.uuid(), mtv1->get_target_class());
+                                    if (replanned && replanned->is_complete) {
+                                        blom = replanned;
+                                        sim_active_blom = blom;
+                                        active_blom_origin = agent_pos;
+                                        GTR_TRACE(trace_id, "PRD1", "Replanning from current position complete. Continuity preserved.");
                                     }
                                 }
 
@@ -505,8 +548,9 @@ int main(int argc, char** argv) {
                                     if (!goal_reached) {
                                         goal_reached = true;
                                         GTR_TRACE(trace_id, "MTV1", "GOAL CONTACT ACHIEVED! Reached target object '" + inv.class_label_id + "'.");
-                                        blom->set_outcome_marker(0.95f);
+                                        blom->close_as_successful(1.0f);
                                         prd1->save_to_log(blom, mtv1->get_target_class());
+                                        GTR_TRACE(trace_id, "TRL1", "Goal BLOM persisted in TRL1Log with outcome_marker=1.0.");
                                         mtv1->zero_goal();
                                     }
                                 }

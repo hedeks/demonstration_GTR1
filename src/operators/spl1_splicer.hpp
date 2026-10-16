@@ -20,7 +20,14 @@ private:
     std::shared_ptr<core::MP10Space> mp10_space_;
 
 public:
-    explicit Spl1Splicer(std::shared_ptr<core::MP10Space> mp10) : mp10_space_(std::move(mp10)) {}
+    float robot_height_{0.75f};
+
+public:
+    explicit Spl1Splicer(std::shared_ptr<core::MP10Space> mp10, float robot_height = 0.75f)
+        : mp10_space_(std::move(mp10)), robot_height_(robot_height) {}
+
+    void set_robot_height(float height) { robot_height_ = height; }
+    float get_robot_height() const { return robot_height_; }
 
     /**
      * @brief Канонический метод: формирование и валидация доменного сплайса (MP12Oprn).

@@ -26,7 +26,7 @@ import gtr1_structures_pb2 as models_pb
 
 
 class PyBulletEnv:
-    def __init__(self, headless=True, sensor_mode="clean", fps=30.0):
+    def __init__(self, headless=True, sensor_mode="clean", fps=60.0):
         self.fps = fps
         self.dt = 1.0 / fps
         self.is_clean_mode = (sensor_mode.lower() == "clean")
@@ -342,7 +342,7 @@ if __name__ == "__main__":
     parser.add_argument("--headless", action="store_true", default=False, help="Run headless without GUI window")
     parser.add_argument("--sensor-mode", choices=["clean", "emulated"], default="clean",
                         help="Sensor mode: 'clean' (ideal analytical depth) or 'emulated' (realistic noise & edge dropouts)")
-    parser.add_argument("--fps", type=float, default=30.0, help="Simulation and stream frame rate")
+    parser.add_argument("--fps", type=float, default=60.0, help="Simulation and stream frame rate (60 FPS default)")
     args = parser.parse_args()
 
     env = PyBulletEnv(headless=args.headless, sensor_mode=args.sensor_mode, fps=args.fps)

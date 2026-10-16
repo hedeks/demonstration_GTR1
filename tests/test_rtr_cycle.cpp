@@ -252,3 +252,198 @@ TEST(RTRCycleTest, FullClosedRTRCycle) {
     EXPECT_EQ(cached_blom->uuid(), planned_blom->uuid());
     EXPECT_GT(cached_blom->get_outcome_marker(), 0.8f);
 }
+
+// 7. Проверка смещения якорной точки на высоту пола (Z = 0.20м) для цели на столе (Z = 0.65м)
+TEST(RTRCycleTest, FloorAnchorPointPlanningForElevatedTarget) {
+    auto mp10 = std::make_shared<MP10Space>("floor_anchor_scene");
+    auto trl1 = std::make_shared<TRL1Log>();
+    Prd1Predictor prd1(mp10, trl1);
+
+    // Робот на полу: Z = 0.20м
+    Eigen::Vector3f robot_floor_pos(0.0f, 0.0f, 0.20f);
+    // Предмет (кружка) на столе: Z = 0.65м
+    Eigen::Vector3f table_cup_pos(1.6f, 0.0f, 0.65f);
+
+    std::vector<std::shared_ptr<MP12Oprn>> empty_splices;
+    auto blom = prd1.build_event_chain("elevated_cup_01", robot_floor_pos, table_cup_pos, empty_splices, "cup");
+
+    ASSERT_NE(blom, nullptr);
+    EXPECT_TRUE(blom->is_complete);
+    EXPECT_FALSE(blom->oprn_items.empty());
+
+    // Все шаги перемещения шасси робота должны оставаться на высоте пола (Z <= 0.35м)
+    Eigen::Vector3f wp = robot_floor_pos;
+    for (const auto& step : blom->oprn_items) {
+        ASSERT_NE(step, nullptr);
+        wp += step->b_vector;
+        EXPECT_LE(wp.z(), 0.35f);
+    }
+}
+
+// 8. Критерий закрытия цели BLOM и автосохранение в TRL1Log
+TEST(RTRCycleTest, BlomGoalClosureAndTRL1Persistence) {
+    auto trl1 = std::make_shared<TRL1Log>();
+
+    Eigen::Vector3f target_pos(2.0f, 1.0f, 0.20f);
+    Eigen::Vector3f far_pos(0.0f, 0.0f, 0.20f);
+    Eigen::Vector3f near_pos(1.95f, 0.95f, 0.20f);
+
+    // Проверка критерия расстояния
+    EXPECT_FALSE(MP13Blom::is_goal_achieved(far_pos, target_pos, 0.25f));
+    EXPECT_TRUE(MP13Blom::is_goal_achieved(near_pos, target_pos, 0.25f));
+
+    auto blom = std::make_shared<MP13Blom>("blom_nav_closure");
+    auto step1 = std::make_shared<MP12Oprn>("step1", "agent_base", "wp1");
+    step1->b_vector = Eigen::Vector3f(1.0f, 0.5f, 0.0f);
+    step1->transition_to(OprnStatus::VALIDATED);
+    blom->append_oprn(step1);
+
+    auto step2 = std::make_shared<MP12Oprn>("step2", "wp1", "manual_waypoint");
+    step2->b_vector = Eigen::Vector3f(1.0f, 0.5f, 0.0f);
+    step2->transition_to(OprnStatus::VALIDATED);
+    blom->append_oprn(step2);
+
+    // Закрытие цели как успешной
+    blom->close_as_successful(1.0f);
+
+    EXPECT_TRUE(blom->is_complete);
+    EXPECT_FLOAT_EQ(blom->get_outcome_marker(), 1.0f);
+    EXPECT_EQ(step1->status, OprnStatus::EXECUTED);
+    EXPECT_EQ(step2->status, OprnStatus::EXECUTED);
+
+    // Сохранение в долгосрочный лог TRL1
+    trl1->record_trajectory(*blom, "manual_waypoint");
+    auto found = trl1->find_trajectories_by_goal("manual_waypoint", 0.95f);
+    ASSERT_EQ(found.size(), 1);
+    EXPECT_EQ(found[0].uuid(), blom->uuid());
+    EXPECT_FLOAT_EQ(found[0].get_outcome_marker(), 1.0f);
+}
+
+// 9. Пошаговый FSM-трекинг OPRN (VALIDATED -> EXECUTED)
+TEST(RTRCycleTest, StepByStepOprnFsmTracking) {
+    auto blom = std::make_shared<MP13Blom>("blom_tracking_test");
+    Eigen::Vector3f start_pos(0.0f, 0.0f, 0.20f);
+
+    auto op1 = std::make_shared<MP12Oprn>("step_1", "agent", "wp1");
+    op1->b_vector = Eigen::Vector3f(0.5f, 0.0f, 0.0f);
+    op1->transition_to(OprnStatus::VALIDATED);
+    blom->append_oprn(op1);
+
+    auto op2 = std::make_shared<MP12Oprn>("step_2", "wp1", "wp2");
+    op2->b_vector = Eigen::Vector3f(0.5f, 0.0f, 0.0f);
+    op2->transition_to(OprnStatus::VALIDATED);
+    blom->append_oprn(op2);
+
+    auto op3 = std::make_shared<MP12Oprn>("step_3", "wp2", "wp3");
+    op3->b_vector = Eigen::Vector3f(0.5f, 0.0f, 0.0f);
+    op3->transition_to(OprnStatus::VALIDATED);
+    blom->append_oprn(op3);
+
+    // 1. Робот достиг WP1 (0.5, 0, 0.2)
+    Eigen::Vector3f pos1(0.48f, 0.02f, 0.20f);
+    int next_idx = blom->update_oprn_progress(pos1, start_pos, 0.25f);
+    EXPECT_EQ(op1->status, OprnStatus::EXECUTED);
+    EXPECT_EQ(op2->status, OprnStatus::VALIDATED);
+    EXPECT_EQ(op3->status, OprnStatus::VALIDATED);
+    EXPECT_EQ(next_idx, 1); // Следующий активный шаг - индекс 1 (op2)
+
+    // 2. Робот достиг WP2 (1.0, 0, 0.2)
+    Eigen::Vector3f pos2(0.99f, 0.0f, 0.20f);
+    next_idx = blom->update_oprn_progress(pos2, start_pos, 0.25f);
+    EXPECT_EQ(op1->status, OprnStatus::EXECUTED);
+    EXPECT_EQ(op2->status, OprnStatus::EXECUTED);
+    EXPECT_EQ(op3->status, OprnStatus::VALIDATED);
+    EXPECT_EQ(next_idx, 2); // Следующий шаг - индекс 2 (op3)
+
+    auto executed = blom->get_executed_oprns();
+    EXPECT_EQ(executed.size(), 2);
+}
+
+// 10. Динамическое локальное перепланирование с сохранением преемственности маршрута
+TEST(RTRCycleTest, DynamicLocalReplanningPreservesExecutedHistory) {
+    auto mp10 = std::make_shared<MP10Space>("replan_scene");
+    auto trl1 = std::make_shared<TRL1Log>();
+    Prd1Predictor prd1(mp10, trl1);
+
+    // Исходный BLOM с уже выполненным первым шагом
+    auto initial_blom = std::make_shared<MP13Blom>("blom_initial");
+    auto executed_step = std::make_shared<MP12Oprn>("step_1", "agent_base", "waypoint_1");
+    executed_step->b_vector = Eigen::Vector3f(0.4f, 0.0f, 0.0f);
+    executed_step->transition_to(OprnStatus::VALIDATED);
+    executed_step->transition_to(OprnStatus::EXECUTED);
+    initial_blom->append_oprn(executed_step);
+
+    // Ставим стену между текущей точкой и целью
+    build_test_wall(mp10, 1.0f, 0.4f, 0.4f);
+
+    Eigen::Vector3f current_pos(0.4f, 0.0f, 0.0f);
+    Eigen::Vector3f target_pos(2.0f, 0.0f, 0.0f);
+
+    auto replanned_blom = prd1.replan_from_current(initial_blom, current_pos, target_pos, "goal_cup", "cup");
+
+    ASSERT_NE(replanned_blom, nullptr);
+    EXPECT_TRUE(replanned_blom->is_complete);
+    EXPECT_GT(replanned_blom->oprn_items.size(), 1);
+
+    // Первый шаг должен быть сохранен как EXECUTED из истории
+    EXPECT_EQ(replanned_blom->oprn_items[0]->status, OprnStatus::EXECUTED);
+    EXPECT_FLOAT_EQ(replanned_blom->oprn_items[0]->b_vector.x(), 0.4f);
+
+    // Последующие шаги должны быть валидированы и обходить препятствие
+    for (size_t i = 1; i < replanned_blom->oprn_items.size(); ++i) {
+        EXPECT_EQ(replanned_blom->oprn_items[i]->status, OprnStatus::VALIDATED);
+    }
+}
+
+// 11. Проверка предотвращения проезда под столом благодаря учету габаритов робота (Clearance Envelope)
+TEST(RTRCycleTest, TableClearancePreventsPlanningUnderTable) {
+    auto mp10 = std::make_shared<MP10Space>("table_clearance_scene");
+    auto trl1 = std::make_shared<TRL1Log>();
+    Prd1Predictor prd1(mp10, trl1, 0.22f, 0.75f);
+    Spl1Splicer splicer(mp10, 0.75f);
+
+    // Строим нависающую столешницу на X in [0.8, 1.2], Y in [-0.45, 0.45], высота Z in [0.55, 0.65]
+    // Пространство под столом (Z in [0.0, 0.40]) полностью свободно!
+    for (float x = 0.8f; x <= 1.2f; x += 0.05f) {
+        for (float y = -0.45f; y <= 0.45f; y += 0.05f) {
+            for (float z = 0.55f; z <= 0.65f; z += 0.05f) {
+                mp10->set_occupied(Eigen::Vector3f(x, y, z), true);
+            }
+        }
+    }
+
+    MP11Object subject("robot_base");
+    subject.bounding_box.center = Eigen::Vector3f(0.0f, 0.0f, 0.20f);
+
+    MP11Object target("goal_behind_table");
+    target.bounding_box.center = Eigen::Vector3f(2.0f, 0.0f, 0.20f);
+
+    // 1. Сплайсер проверяет верхний габаритный луч: под столом проехать нельзя -> COLLISION
+    auto direct_splice = splicer.form_splice(subject, target);
+    EXPECT_EQ(direct_splice->status, OprnStatus::COLLISION);
+
+    // 2. Предиктор строит обходной маршрут A* с учетом высоты 0.75м
+    std::vector<std::shared_ptr<MP12Oprn>> splices = { direct_splice };
+    auto blom = prd1.build_event_chain(target.uuid(),
+                                       subject.bounding_box.center,
+                                       target.bounding_box.center,
+                                       splices);
+
+    ASSERT_NE(blom, nullptr);
+    EXPECT_TRUE(blom->is_complete);
+
+    // Маршрут должен обогнуть стол сбоку, а не проезжать под столешницей через центр Y = 0.0
+    Eigen::Vector3f wp = subject.bounding_box.center;
+    bool went_around_y = false;
+    for (const auto& step : blom->oprn_items) {
+        ASSERT_NE(step, nullptr);
+        wp += step->b_vector;
+        if (wp.x() >= 0.8f && wp.x() <= 1.2f) {
+            // В зоне X стола робот должен сместиться по Y за пределы столешницы
+            if (std::abs(wp.y()) > 0.45f) {
+                went_around_y = true;
+            }
+        }
+    }
+    EXPECT_TRUE(went_around_y);
+}

@@ -59,6 +59,76 @@ public:
         return outcome_marker;
     }
 
+    /**
+     * @brief Проверяет, достигнута ли цель (расстояние <= epsilon).
+     */
+    static bool is_goal_achieved(const Eigen::Vector3f& current_pos, const Eigen::Vector3f& target_pos, float epsilon = 0.25f) {
+        return (current_pos - target_pos).norm() <= epsilon;
+    }
+
+    /**
+     * @brief Фиксирует успешное закрытие цели: выставляет is_complete,
+     * outcome_marker и переводит незавершенные OPRN в EXECUTED.
+     */
+    void close_as_successful(float score = 1.0f) {
+        is_complete = true;
+        set_outcome_marker(score);
+        for (auto& oprn : oprn_items) {
+            if (oprn && oprn->status != OprnStatus::EXECUTED) {
+                if (oprn->can_transition_to(OprnStatus::EXECUTED)) {
+                    oprn->transition_to(OprnStatus::EXECUTED);
+                }
+            }
+        }
+    }
+
+    /**
+     * @brief Пошаговый FSM-трекинг: обновляет статусы OPRN на EXECUTED при прохождении путевых точек.
+     * @param current_pos Текущая мировая позиция робота.
+     * @param start_pos Исходная стартовая позиция начала маршрута.
+     * @param tolerance Допустимая окрестность путевой точки (по умолчанию 0.30м).
+     * @return Индекс следующей активной (незавершенной) OPRN (0-based) или -1 если маршрут завершен.
+     */
+    int update_oprn_progress(const Eigen::Vector3f& current_pos, const Eigen::Vector3f& start_pos, float tolerance = 0.30f) {
+        if (oprn_items.empty()) return -1;
+
+        Eigen::Vector3f wp_accum = start_pos;
+        int next_active_index = -1;
+
+        for (size_t i = 0; i < oprn_items.size(); ++i) {
+            auto& oprn = oprn_items[i];
+            if (!oprn) continue;
+
+            wp_accum += oprn->b_vector;
+            float dist_to_wp = (current_pos - wp_accum).norm();
+
+            if (oprn->status == OprnStatus::VALIDATED) {
+                if (dist_to_wp <= tolerance) {
+                    oprn->transition_to(OprnStatus::EXECUTED);
+                } else if (next_active_index == -1) {
+                    next_active_index = static_cast<int>(i);
+                }
+            } else if (oprn->status == OprnStatus::PENDING && next_active_index == -1) {
+                next_active_index = static_cast<int>(i);
+            }
+        }
+
+        return next_active_index;
+    }
+
+    /**
+     * @brief Возвращает список всех уже выполненных OPRN (со статусом EXECUTED).
+     */
+    std::vector<std::shared_ptr<MP12Oprn>> get_executed_oprns() const {
+        std::vector<std::shared_ptr<MP12Oprn>> executed;
+        for (const auto& item : oprn_items) {
+            if (item && item->status == OprnStatus::EXECUTED) {
+                executed.push_back(item);
+            }
+        }
+        return executed;
+    }
+
     using ValiBase::to_proto;
     using ValiBase::from_proto;
 

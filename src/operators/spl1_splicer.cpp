@@ -15,9 +15,27 @@ std::shared_ptr<core::MP12Oprn> Spl1Splicer::form_splice(const core::MP11Object&
     Eigen::Vector3f dest = target.bounding_box.center;
 
     Eigen::Vector3f hit_point;
-    bool is_path_clear = mp10_space_->raycast(origin, dest, hit_point);
+    bool is_base_clear = mp10_space_->raycast(origin, dest, hit_point);
 
-    if (is_path_clear) {
+    // Проверка высотного профиля робота (защита от проезда под столами/нависаниями)
+    bool is_body_clear = true;
+    if (is_base_clear && robot_height_ > 0.30f) {
+        // Проверяем лучи через каждые 15 см высоты корпуса робота
+        for (float dh = 0.08f; dh <= robot_height_; dh += 0.08f) {
+            Eigen::Vector3f layer_origin = origin + Eigen::Vector3f(0.0f, 0.0f, dh);
+            Eigen::Vector3f layer_dest = dest;
+            if (std::abs(dest.z() - origin.z()) < 0.25f) {
+                layer_dest.z() += dh;
+            }
+            Eigen::Vector3f layer_hit;
+            if (!mp10_space_->raycast(layer_origin, layer_dest, layer_hit)) {
+                is_body_clear = false;
+                break;
+            }
+        }
+    }
+
+    if (is_base_clear && is_body_clear) {
         splice->transition_to(core::OprnStatus::VALIDATED);
     } else {
         splice->transition_to(core::OprnStatus::COLLISION);

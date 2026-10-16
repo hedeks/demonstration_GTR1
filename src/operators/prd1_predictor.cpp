@@ -9,9 +9,13 @@ namespace gtr1 {
 namespace operators {
 
 Prd1Predictor::Prd1Predictor(std::shared_ptr<core::MP10Space> mp10,
-                             std::shared_ptr<core::TRL1Log> trl1_log)
+                             std::shared_ptr<core::TRL1Log> trl1_log,
+                             float robot_radius,
+                             float robot_height)
     : mp10_(std::move(mp10)),
-      trl1_log_(trl1_log ? std::move(trl1_log) : std::make_shared<core::TRL1Log>()) {}
+      trl1_log_(trl1_log ? std::move(trl1_log) : std::make_shared<core::TRL1Log>()),
+      robot_radius_(robot_radius),
+      robot_height_(robot_height) {}
 
 struct AStarNode {
     Eigen::Vector3f pos;
@@ -93,16 +97,42 @@ std::vector<Eigen::Vector3f> Prd1Predictor::run_astar(const Eigen::Vector3f& sta
                 continue;
             }
 
-            // Проверка проходимости вокселя в MP10
-            if (mp10_ && !mp10_->is_node_free(neighbor_pos)) {
-                continue; // Препятствие
+            // Проверка проходимости с учетом физических габаритов робота (Clearance Envelope):
+            // Высота robot_height_ (0.75м), радиус robot_radius_ (0.22м)
+            bool is_blocked = false;
+            // Проверяем вертикальный габарит цилиндра робота от основания до верхней точки
+            if (mp10_) {
+                for (float dh = 0.0f; dh <= robot_height_; dh += 0.08f) {
+                    Eigen::Vector3f check_pt = neighbor_pos;
+                    check_pt.z() += dh;
+                    if (!mp10_->is_node_free(check_pt)) {
+                        is_blocked = true;
+                        break;
+                    }
+                    // Препятствие вторгается в физический радиус корпуса робота
+                    if (mp10_->is_near_obstacle(check_pt, robot_radius_ * 0.85f)) {
+                        is_blocked = true;
+                        break;
+                    }
+                }
+            }
+            if (is_blocked) {
+                continue; // Столешница, нависающее препятствие или слишком узкий проход
             }
 
-            // Расчет стоимости g(n): перемещение + штраф за безопасность (Safety Margin 0.3м)
+            // Расчет стоимости g(n): перемещение + штраф за безопасность (Safety Margin)
             float move_cost = dir.norm();
             float safety_penalty = 0.0f;
-            if (mp10_ && mp10_->is_near_obstacle(neighbor_pos, 0.3f)) {
-                safety_penalty = 50.0f; // Штраф за опасную близость к препятствию
+            float safety_margin = robot_radius_ + 0.12f; // ~0.34м безопасная буферная зона
+            if (mp10_) {
+                for (float dh = 0.0f; dh <= robot_height_; dh += 0.25f) {
+                    Eigen::Vector3f check_pt = neighbor_pos;
+                    check_pt.z() += dh;
+                    if (mp10_->is_near_obstacle(check_pt, safety_margin)) {
+                        safety_penalty = 50.0f; // Штраф за опасную близость
+                        break;
+                    }
+                }
             }
 
             auto neighbor = std::make_shared<AStarNode>();
@@ -153,7 +183,12 @@ std::shared_ptr<core::MP13Blom> Prd1Predictor::build_event_chain(
     }
 
     // 2. Прямой сплайс в коллизии или отсутствует — обратный ход (RTR) через A* поиск
-    std::vector<Eigen::Vector3f> path = run_astar(start_pos, target_pos);
+    // 2. Прямой сплайс в коллизии или отсутствует — обратный ход (RTRI через A* поиск
+    Eigen::Vector3f effective_goal = target_pos;
+    if (std::abs(effective_goal.z() - start_pos.z()) > 0.25f && start_pos.z() <= 0.35f) {
+        effective_goal.z() = start_pos.z();
+    }
+    std::vector<Eigen::Vector3f> path = run_astar(start_pos, effective_goal);
 
     if (!path.empty()) {
         for (size_t i = 1; i < path.size(); ++i) {
@@ -216,6 +251,50 @@ void Prd1Predictor::save_to_log(std::shared_ptr<gtr1::models::MP13Blom> complete
         trl1_log_->record_trajectory(domain_blom, goal_class);
     }
 }
+
+
+std::shared_ptr<core::MP13Blom> Prd1Predictor::replan_from_current(
+        std::shared_ptr<core::MP13Blom> current_blom,
+        const Eigen::Vector3f& current_pos,
+        const Eigen::Vector3f& target_pos,
+        const std::string& target_uuid,
+        const std::string& goal_class) {
+
+    auto replanned_blom = std::make_shared<core::MP13Blom>("blom_replan_" + target_uuid);
+
+    // 1. Сохраняет преемственность маршрута: переносим уже выполненные шаги
+    if (current_blom) {
+        for (const auto& item : current_blom->oprn_items) {
+            if (item && item->status == core::OprnStatus::EXECUTED) {
+                replanned_blom->append_oprn(item);
+            }
+        }
+    }
+
+    // 2. Строим продолжение маршрута от текущего местоположения робота
+    std::vector<std::shared_ptr<core::MP12Oprn>> empty_splices;
+    auto remaining_blom = build_event_chain(target_uuid, current_pos, target_pos, empty_splices, goal_class);
+
+    if (remaining_blom && remaining_blom->is_complete) {
+        // Добавляем новые шаги к сохраненной истории
+        size_t offset = replanned_blom->oprn_items.size();
+        for (size_t i = 0; i < remaining_blom->oprn_items.size(); ++i) {
+            const auto& step = remaining_blom->oprn_items[i];
+            if (!step) continue;
+            std::string re_step_id = "oprn_step_" + std::to_string(offset + i + 1);
+            step->set_uuid(re_step_id);
+            replanned_blom->append_oprn(step);
+        }
+        replanned_blom->is_complete = true;
+        replanned_blom->set_outcome_marker(0.9f);
+    } else {
+        replanned_blom->is_complete = false;
+        replanned_blom->set_outcome_marker(0.0f);
+    }
+
+    return replanned_blom;
+}
+
 
 } // namespace operators
 } // namespace gtr1
