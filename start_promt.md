@@ -5,7 +5,7 @@
 Твои вводные (Мета-информация):
 
 Вникни в философию и макро-архитектуру, прочитав demonstration GTR1/description_GTR1.md и glossary.md.
-Ознакомься с жесткими инженерными рамками (С++ ядро, Python ML, Protobuf, Docker, оффлайн-датасеты) в demonstration GTR1/01_architecture/ADR_001_MVP_baseline.md.
+Ознакомься с жесткими инженерными рамками (С++ ядро, Python ML, Protobuf, нативный Linux/WSL, оффлайн-датасеты) в demonstration GTR1/01_architecture/ADR_001_MVP_baseline.md.
 Наш полный бэклог лежит в tasks.md, а задачи по инфраструктуре демо-стенда — в meta_tasks.md.
 Твоя задача на сессию:
 
