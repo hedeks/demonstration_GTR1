@@ -45,21 +45,25 @@ public:
         pub_.bind("tcp://*:5556");
     }
     void set_mode(const std::string& mode) { mode_ = mode; }
+
     void send_log(const std::string& source, const std::string& msg) {
         std::string json = "{\"type\":\"TRACE_LOG\",\"source\":\"" + source + "\",\"message\":\"" + msg + "\"}";
         zmq::message_t zmsg(json.begin(), json.end());
         pub_.send(zmsg, zmq::send_flags::none);
     }
+
     void send_path(const Eigen::Vector3f& start, const Eigen::Vector3f& end) {
         std::string json = "{\"type\":\"PATH\",\"mode\":\"" + mode_ + "\",\"points\":[{\"x\":" + std::to_string(start.x()) + ",\"y\":" + std::to_string(start.y()) + ",\"z\":" + std::to_string(start.z()) + "},{\"x\":" + std::to_string(end.x()) + ",\"y\":" + std::to_string(end.y()) + ",\"z\":" + std::to_string(end.z()) + "}]}";
         zmq::message_t zmsg(json.begin(), json.end());
         pub_.send(zmsg, zmq::send_flags::none);
     }
+
     void send_voxel(float x, float y, float z) {
         std::string json = "{\"type\":\"VOXEL\",\"mode\":\"" + mode_ + "\",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + ",\"z\":" + std::to_string(z) + "}";
         zmq::message_t zmsg(json.begin(), json.end());
         pub_.send(zmsg, zmq::send_flags::none);
     }
+
     void send_map(const std::vector<Eigen::Vector3f>& voxels) {
         if (voxels.empty()) return;
         std::string json;
@@ -76,6 +80,26 @@ public:
         zmq::message_t zmsg(json.begin(), json.end());
         pub_.send(zmsg, zmq::send_flags::none);
     }
+
+    void send_pose(const Eigen::Matrix4f& pose) {
+        Eigen::Vector3f pos = pose.block<3,1>(0,3);
+        Eigen::Quaternionf q(pose.block<3,3>(0,0));
+        float yaw = (mode_ == "SIM") ? std::atan2(pose(1,2), pose(0,2)) : 0.0f;
+        float ground_z = (mode_ == "SIM") ? 0.0f : pos.z();
+        std::string json = "{\"type\":\"POSE\",\"mode\":\"" + mode_ + 
+            "\",\"x\":" + std::to_string(pos.x()) + 
+            ",\"y\":" + std::to_string(pos.y()) + 
+            ",\"z\":" + std::to_string(ground_z) + 
+            ",\"cam_z\":" + std::to_string(pos.z()) + 
+            ",\"yaw\":" + std::to_string(yaw) + 
+            ",\"qx\":" + std::to_string(q.x()) + 
+            ",\"qy\":" + std::to_string(q.y()) + 
+            ",\"qz\":" + std::to_string(q.z()) + 
+            ",\"qw\":" + std::to_string(q.w()) + "}";
+        zmq::message_t zmsg(json.begin(), json.end());
+        pub_.send(zmsg, zmq::send_flags::none);
+    }
+
     void send_rtr_debug(
         const std::vector<gtr1::core::MP11Object>& invariants,
         const std::string& target_class,
@@ -198,22 +222,180 @@ public:
         pub_.send(zmsg, zmq::send_flags::none);
     }
 
-    void send_pose(const Eigen::Matrix4f& pose) {
+    /**
+     * @brief Единый атомарный пакет тика (Unified Tick Bundle).
+     * Синхронизирует кадр, позу, карту вокселей, путь и статус целеполагания за один такт.
+     */
+    void send_tick_bundle(
+        uint64_t tick_id,
+        double timestamp,
+        const Eigen::Matrix4f& pose,
+        const std::vector<Eigen::Vector3f>& voxels,
+        const Eigen::Vector3f& path_start,
+        const Eigen::Vector3f& path_end,
+        bool has_path,
+        const std::vector<gtr1::core::MP11Object>& invariants,
+        const std::string& target_class,
+        const Eigen::Vector3f& agent_pos,
+        std::shared_ptr<gtr1::core::MP13Blom> active_blom,
+        const std::vector<gtr1::core::MP13Blom>& cached_bloms,
+        bool goal_reached) {
+        
         Eigen::Vector3f pos = pose.block<3,1>(0,3);
         Eigen::Quaternionf q(pose.block<3,3>(0,0));
-        // True robot heading in world: camera optical forward (col 2: pose(0,2), pose(1,2))
         float yaw = (mode_ == "SIM") ? std::atan2(pose(1,2), pose(0,2)) : 0.0f;
         float ground_z = (mode_ == "SIM") ? 0.0f : pos.z();
-        std::string json = "{\"type\":\"POSE\",\"mode\":\"" + mode_ + 
-            "\",\"x\":" + std::to_string(pos.x()) + 
-            ",\"y\":" + std::to_string(pos.y()) + 
-            ",\"z\":" + std::to_string(ground_z) + 
-            ",\"cam_z\":" + std::to_string(pos.z()) + 
-            ",\"yaw\":" + std::to_string(yaw) + 
-            ",\"qx\":" + std::to_string(q.x()) + 
-            ",\"qy\":" + std::to_string(q.y()) + 
-            ",\"qz\":" + std::to_string(q.z()) + 
-            ",\"qw\":" + std::to_string(q.w()) + "}";
+
+        std::string json;
+        json.reserve(voxels.size() * 26 + 2048);
+
+        json = "{\"type\":\"TICK_BUNDLE\",\"mode\":\"" + mode_ + "\",";
+        json += "\"tick_id\":" + std::to_string(tick_id) + ",";
+        json += "\"timestamp\":" + std::to_string(timestamp) + ",";
+
+        // 1. Pose
+        json += "\"pose\":{";
+        json += "\"x\":" + std::to_string(pos.x()) + ",";
+        json += "\"y\":" + std::to_string(pos.y()) + ",";
+        json += "\"z\":" + std::to_string(ground_z) + ",";
+        json += "\"cam_z\":" + std::to_string(pos.z()) + ",";
+        json += "\"yaw\":" + std::to_string(yaw) + ",";
+        json += "\"qx\":" + std::to_string(q.x()) + ",";
+        json += "\"qy\":" + std::to_string(q.y()) + ",";
+        json += "\"qz\":" + std::to_string(q.z()) + ",";
+        json += "\"qw\":" + std::to_string(q.w()) + "},";
+
+        // 2. Voxels
+        json += "\"voxels\":[";
+        char buf[64];
+        for (size_t i = 0; i < voxels.size(); ++i) {
+            int len = snprintf(buf, sizeof(buf), "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}",
+                               voxels[i].x(), voxels[i].y(), voxels[i].z());
+            json.append(buf, len);
+            if (i + 1 < voxels.size()) json.push_back(',');
+        }
+        json += "],";
+
+        // 3. Path
+        json += "\"path\":[";
+        if (has_path) {
+            int len1 = snprintf(buf, sizeof(buf), "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f},",
+                                path_start.x(), path_start.y(), path_start.z());
+            json.append(buf, len1);
+            int len2 = snprintf(buf, sizeof(buf), "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}",
+                                path_end.x(), path_end.y(), path_end.z());
+            json.append(buf, len2);
+        }
+        json += "],";
+
+        // 4. Active Goal
+        json += "\"active_goal\":{";
+        json += "\"target_class\":\"" + target_class + "\",";
+        json += "\"goal_reached\":" + std::string(goal_reached ? "true" : "false") + ",";
+        float active_dist = -1.0f;
+        bool found_target = false;
+        for (const auto& inv : invariants) {
+            if (inv.class_label_id == target_class) {
+                active_dist = (inv.bounding_box.center - agent_pos).norm();
+                json += "\"pos\":{\"x\":" + std::to_string(inv.bounding_box.center.x()) +
+                        ",\"y\":" + std::to_string(inv.bounding_box.center.y()) +
+                        ",\"z\":" + std::to_string(inv.bounding_box.center.z()) + "},";
+                json += "\"dims\":{\"dx\":" + std::to_string(inv.bounding_box.size.x()) +
+                        ",\"dy\":" + std::to_string(inv.bounding_box.size.y()) +
+                        ",\"dz\":" + std::to_string(inv.bounding_box.size.z()) + "},";
+                found_target = true;
+                break;
+            }
+        }
+        if (!found_target) {
+            json += "\"pos\":null,\"dims\":null,";
+        }
+        json += "\"distance\":" + std::to_string(active_dist) + "},";
+
+        // 5. Goals Tree
+        json += "\"goals_tree\":[";
+        for (size_t i = 0; i < invariants.size(); ++i) {
+            const auto& inv = invariants[i];
+            float d = (inv.bounding_box.center - agent_pos).norm();
+            bool is_target = (!target_class.empty() && inv.class_label_id == target_class);
+            json += "{\"uuid\":\"" + inv.uuid() + "\",";
+            json += "\"class_label\":\"" + inv.class_label_id + "\",";
+            json += "\"is_target\":" + std::string(is_target ? "true" : "false") + ",";
+            json += "\"distance\":" + std::to_string(d) + ",";
+            json += "\"pos\":{\"x\":" + std::to_string(inv.bounding_box.center.x()) +
+                    ",\"y\":" + std::to_string(inv.bounding_box.center.y()) +
+                    ",\"z\":" + std::to_string(inv.bounding_box.center.z()) + "},";
+            json += "\"dims\":{\"dx\":" + std::to_string(inv.bounding_box.size.x()) +
+                    ",\"dy\":" + std::to_string(inv.bounding_box.size.y()) +
+                    ",\"dz\":" + std::to_string(inv.bounding_box.size.z()) + "}}";
+            if (i + 1 < invariants.size()) json += ",";
+        }
+        json += "],";
+
+        // 6. Active BLOM
+        json += "\"active_blom\":";
+        if (active_blom) {
+            json += "{\"uuid\":\"" + active_blom->uuid() + "\",";
+            json += "\"is_complete\":" + std::string(active_blom->is_complete ? "true" : "false") + ",";
+            json += "\"outcome_marker\":" + std::to_string(active_blom->outcome_marker) + ",";
+            json += "\"oprn_count\":" + std::to_string(active_blom->oprn_sequence.size()) + ",";
+            json += "\"oprn_nodes\":[";
+            Eigen::Vector3f step_start = agent_pos;
+            if (!active_blom->oprn_items.empty()) {
+                for (size_t j = 0; j < active_blom->oprn_items.size(); ++j) {
+                    const auto& o = active_blom->oprn_items[j];
+                    if (!o) continue;
+                    Eigen::Vector3f step_end = step_start + o->b_vector;
+                    float b_len = o->b_vector.norm();
+                    std::string st_str = "PENDING";
+                    if (o->status == gtr1::core::OprnStatus::VALIDATED) st_str = "VALIDATED";
+                    else if (o->status == gtr1::core::OprnStatus::COLLISION) st_str = "COLLISION";
+                    else if (o->status == gtr1::core::OprnStatus::EXECUTED) st_str = "EXECUTED";
+
+                    json += "{\"index\":" + std::to_string(j + 1) + ",";
+                    json += "\"uuid\":\"" + o->uuid() + "\",";
+                    json += "\"subject_ref\":\"" + o->subject_ref + "\",";
+                    json += "\"target_ref\":\"" + o->target_ref + "\",";
+                    json += "\"status\":\"" + st_str + "\",";
+                    json += "\"b_length\":" + std::to_string(b_len) + ",";
+                    json += "\"start\":{\"x\":" + std::to_string(step_start.x()) + ",\"y\":" + std::to_string(step_start.y()) + ",\"z\":" + std::to_string(step_start.z()) + "},";
+                    json += "\"end\":{\"x\":" + std::to_string(step_end.x()) + ",\"y\":" + std::to_string(step_end.y()) + ",\"z\":" + std::to_string(step_end.z()) + "},";
+                    json += "\"b_vector\":{\"x\":" + std::to_string(o->b_vector.x()) +
+                            ",\"y\":" + std::to_string(o->b_vector.y()) +
+                            ",\"z\":" + std::to_string(o->b_vector.z()) + "}}";
+                    if (j + 1 < active_blom->oprn_items.size()) json += ",";
+                    step_start = step_end;
+                }
+            } else {
+                for (size_t j = 0; j < active_blom->oprn_sequence.size(); ++j) {
+                    json += "{\"index\":" + std::to_string(j + 1) + ",";
+                    json += "\"uuid\":\"" + active_blom->oprn_sequence[j] + "\",";
+                    json += "\"subject_ref\":\"agent_base\",";
+                    json += "\"target_ref\":\"" + target_class + "\",";
+                    json += "\"status\":\"VALIDATED\",";
+                    json += "\"b_length\":0.0,";
+                    json += "\"b_vector\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}";
+                    if (j + 1 < active_blom->oprn_sequence.size()) json += ",";
+                }
+            }
+            json += "]}";
+        } else {
+            json += "null";
+        }
+        json += ",";
+
+        // 7. Cached BLOMs
+        json += "\"cached_bloms\":[";
+        for (size_t k = 0; k < cached_bloms.size(); ++k) {
+            const auto& cb = cached_bloms[k];
+            json += "{\"uuid\":\"" + cb.uuid() + "\",";
+            json += "\"is_complete\":" + std::string(cb.is_complete ? "true" : "false") + ",";
+            json += "\"outcome_marker\":" + std::to_string(cb.outcome_marker) + ",";
+            json += "\"oprn_count\":" + std::to_string(cb.oprn_sequence.size()) + "}";
+            if (k + 1 < cached_bloms.size()) json += ",";
+        }
+        json += "]}";
+
         zmq::message_t zmsg(json.begin(), json.end());
         pub_.send(zmsg, zmq::send_flags::none);
     }
@@ -280,6 +462,7 @@ int main(int argc, char** argv) {
             double ts = 0.0;
             std::string trace_id;
             bool is_clean = true;
+            uint64_t rx_frame_id = 0;
             uint64_t frame_counter = 0;
             bool goal_reached = false;
             std::shared_ptr<gtr1::core::MP13Blom> sim_active_blom = nullptr;
@@ -293,12 +476,13 @@ int main(int argc, char** argv) {
             GTR_TRACE("INIT", "SIM", "Closed-loop PyBullet pipeline started.");
 
             while (!g_shutdown_requested.load()) {
-                if (!receiver.poll_frame(rgb, depth, pose, ts, trace_id, is_clean, 200)) {
+                if (!receiver.poll_frame(rgb, depth, pose, ts, trace_id, is_clean, rx_frame_id, 200)) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                     continue;
                 }
 
                 frame_counter++;
+                uint64_t active_tick_id = (rx_frame_id > 0) ? rx_frame_id : frame_counter;
 
                 // 0. Опрос динамической цели из Дашборда (порт 5562)
                 char goal_buf[256];
@@ -320,33 +504,34 @@ int main(int argc, char** argv) {
                         } else {
                             mtv1->inject_goal(target_name, 0.95f);
                             goal_reached = false;
-                            GTR_TRACE(trace_id, "MTV1", "Target updated to '" + target_name + "'. Searching room.");
-                            std::cout << "[MTV1] Goal updated to '" << target_name << "'\n";
+                            GTR_TRACE(trace_id, "MTV1", "New target injected from UI: '" + target_name + "'");
+                            std::cout << "[MTV1] Dynamic Goal Injected from Web UI: '" << target_name << "'\n";
                         }
-                    } else if (goal_str.rfind("CMD:STOP", 0) == 0) {
-                        is_manual_stopped = true;
-                        receiver.send_command(0.0f, 0.0f, 0.0f, trace_id);
-                        GTR_TRACE(trace_id, "OP13", "EMERGENCY STOP commanded from Dashboard. Robot holding position.");
-                        std::cout << "[OP13] EMERGENCY STOP. Robot holding position.\n";
-                    } else if (goal_str.rfind("CMD:RESUME", 0) == 0) {
-                        is_manual_stopped = false;
-                        GTR_TRACE(trace_id, "OP13", "RESUME commanded from Dashboard. Re-engaging navigation.");
-                        std::cout << "[OP13] RESUME commanded. Continuing navigation.\n";
-                    } else if (goal_str.rfind("NAV_POSE:", 0) == 0) {
-                        std::string nav_str = goal_str.substr(9);
-                        size_t c1 = nav_str.find(',');
-                        size_t c2 = (c1 != std::string::npos) ? nav_str.find(',', c1 + 1) : std::string::npos;
-                        if (c1 != std::string::npos) {
-                            float nx = std::stof(nav_str.substr(0, c1));
-                            float ny = (c2 != std::string::npos) ? std::stof(nav_str.substr(c1 + 1, c2 - c1 - 1)) : std::stof(nav_str.substr(c1 + 1));
-                            float nyaw = (c2 != std::string::npos) ? std::stof(nav_str.substr(c2 + 1)) * M_PI / 180.0f : 0.0f;
-                            manual_nav_pos = Eigen::Vector3f(nx, ny, 0.20f);
-                            manual_nav_yaw = nyaw;
-                            has_manual_nav_target = true;
+                    } else if (goal_str.rfind("CMD:", 0) == 0) {
+                        std::string cmd = goal_str.substr(4);
+                        if (cmd.find("STOP") != std::string::npos) {
+                            is_manual_stopped = true;
+                            receiver.send_command(0.0f, 0.0f, 0.0f, trace_id, active_tick_id);
+                            GTR_TRACE(trace_id, "UI", "Manual emergency STOP triggered from dashboard.");
+                            std::cout << "[UI] Manual STOP triggered.\n";
+                        } else if (cmd.find("RESUME") != std::string::npos) {
                             is_manual_stopped = false;
+                            GTR_TRACE(trace_id, "UI", "Manual motion RESUMED from dashboard.");
+                            std::cout << "[UI] Motion RESUMED.\n";
+                        }
+                    } else if (goal_str.rfind("NAV_POSE:", 0) == 0) {
+                        std::string payload = goal_str.substr(9);
+                        float nx = 0.0f, ny = 0.0f, nyaw = 0.0f;
+                        if (sscanf(payload.c_str(), "%f,%f,%f", &nx, &ny, &nyaw) >= 2) {
+                            manual_nav_pos = Eigen::Vector3f(nx, ny, 0.20f);
+                            manual_nav_yaw = nyaw * M_PI / 180.0f;
+                            has_manual_nav_target = true;
                             goal_reached = false;
-                            GTR_TRACE(trace_id, "MTV1", "Manual waypoint goal set: [" + std::to_string(nx).substr(0,4) + ", " + 
-                                      std::to_string(ny).substr(0,4) + "], Yaw: " + std::to_string(nyaw * 180.0f / M_PI).substr(0,4) + " deg");
+                            mtv1->zero_goal();
+                            active_blom_target_key = "";
+                            GTR_TRACE(trace_id, "UI", "Interactive Goal received: target=[" + 
+                                      std::to_string(nx).substr(0,4) + ", " + std::to_string(ny).substr(0,4) + 
+                                      "], yaw=" + std::to_string(nyaw).substr(0,4) + " deg");
                             std::cout << "[MTV1] Navigating to manual waypoint [" << nx << ", " << ny << "] yaw=" << (nyaw*180.0f/M_PI) << " deg\n";
                         }
                     }
@@ -362,25 +547,23 @@ int main(int argc, char** argv) {
                     agent_pos.z() = 0.20f; // Якорная точка шасси робота на высоте пола (0.20м)
                 }
                 auto invariants = mp11->get_domain_invariants();
-
-                if (frame_counter % 5 == 0) {
-                    telemetry.send_pose(mp10->get_pose());
-                    std::vector<gtr1::core::MP13Blom> cached;
-                    if (prd1 && prd1->get_log()) {
-                        cached = prd1->get_log()->get_all_trajectories();
-                    }
-                    telemetry.send_rtr_debug(invariants, mtv1->get_target_class(), agent_pos, sim_active_blom, cached, goal_reached);
-                }
                 auto current_voxels = mp10->get_occupied_voxels();
-                telemetry.send_map(current_voxels);
-                if (frame_counter % 30 == 0) {
-                    GTR_TRACE(trace_id, "OCTO", "Voxel map updated: " + std::to_string(current_voxels.size()) + 
-                              " occupied voxels. Sensor mode: " + (is_clean ? "CLEAN" : "EMULATED_NOISE"));
-                }
+
+                bool has_path = false;
+                Eigen::Vector3f path_start = agent_pos;
+                Eigen::Vector3f path_end = agent_pos;
+
+                float vx = 0.0f;
+                float wz = 0.0f;
 
                 // 3. RTR Обратный ход: ручная остановка, целевые координаты или семантические инварианты
                 if (is_manual_stopped) {
-                    receiver.send_command(0.0f, 0.0f, 0.0f, trace_id);
+                    receiver.send_command(0.0f, 0.0f, 0.0f, trace_id, active_tick_id);
+                    telemetry.send_tick_bundle(active_tick_id, ts, mp10->get_pose(), current_voxels,
+                                               path_start, path_end, has_path, invariants,
+                                               mtv1->get_target_class(), agent_pos, sim_active_blom,
+                                               (prd1 && prd1->get_log()) ? prd1->get_log()->get_all_trajectories() : std::vector<gtr1::core::MP13Blom>{},
+                                               goal_reached);
                     continue;
                 }
 
@@ -421,14 +604,17 @@ int main(int argc, char** argv) {
                         }
                     }
 
+                    has_path = true;
+                    path_start = agent_pos;
+                    path_end = manual_nav_pos;
+
                     if (dist_final > 0.20f) {
                         float dx = steer_target.x() - agent_pos.x();
                         float dy = steer_target.y() - agent_pos.y();
                         float target_yaw = std::atan2(dy, dx);
                         float yaw_err = normalize_angle(target_yaw - current_yaw);
 
-                        float wz = std::clamp(1.6f * yaw_err, -0.9f, 0.9f);
-                        float vx = 0.0f;
+                        wz = std::clamp(1.6f * yaw_err, -0.9f, 0.9f);
                         if (std::abs(yaw_err) < 0.35f) {
                             vx = std::clamp(0.4f * dist_final, 0.08f, 0.28f);
                         } else if (std::abs(yaw_err) < 0.70f) {
@@ -436,15 +622,17 @@ int main(int argc, char** argv) {
                         } else {
                             vx = 0.0f; // чистый разворот на месте
                         }
-                        receiver.send_command(vx, 0.0f, wz, trace_id);
-                        telemetry.send_path(agent_pos, manual_nav_pos);
+                        receiver.send_command(vx, 0.0f, wz, trace_id, active_tick_id);
                     } else {
                         float final_yaw_err = normalize_angle(manual_nav_yaw - current_yaw);
                         if (std::abs(final_yaw_err) > 0.08f) {
-                            float wz = std::clamp(1.5f * final_yaw_err, -0.6f, 0.6f);
-                            receiver.send_command(0.0f, 0.0f, wz, trace_id);
+                            wz = std::clamp(1.5f * final_yaw_err, -0.6f, 0.6f);
+                            vx = 0.0f;
+                            receiver.send_command(0.0f, 0.0f, wz, trace_id, active_tick_id);
                         } else {
-                            receiver.send_command(0.0f, 0.0f, 0.0f, trace_id);
+                            vx = 0.0f;
+                            wz = 0.0f;
+                            receiver.send_command(0.0f, 0.0f, 0.0f, trace_id, active_tick_id);
                             has_manual_nav_target = false;
                             if (sim_active_blom) {
                                 sim_active_blom->close_as_successful(1.0f);
@@ -454,6 +642,12 @@ int main(int argc, char** argv) {
                             GTR_TRACE(trace_id, "OP13", "Target coordinate and orientation achieved! Holding position.");
                         }
                     }
+
+                    telemetry.send_tick_bundle(active_tick_id, ts, mp10->get_pose(), current_voxels,
+                                               path_start, path_end, has_path, invariants,
+                                               mtv1->get_target_class(), agent_pos, sim_active_blom,
+                                               (prd1 && prd1->get_log()) ? prd1->get_log()->get_all_trajectories() : std::vector<gtr1::core::MP13Blom>{},
+                                               goal_reached);
                     continue;
                 }
 
@@ -485,8 +679,9 @@ int main(int argc, char** argv) {
                                 // Пошаговый FSM-трекинг OPRN
                                 blom->update_oprn_progress(agent_pos, active_blom_origin, 0.25f);
 
-                                telemetry.send_path(agent_pos, inv.bounding_box.center);
-                                telemetry.send_voxel(inv.bounding_box.center.x(), inv.bounding_box.center.y(), inv.bounding_box.center.z());
+                                has_path = true;
+                                path_start = agent_pos;
+                                path_end = inv.bounding_box.center;
 
                                 // Определяем цель руления: следующий незавершенный waypoint в цепочке OPRN
                                 Eigen::Vector3f steer_target = inv.bounding_box.center;
@@ -525,8 +720,7 @@ int main(int argc, char** argv) {
                                     float current_yaw = std::atan2(pose(1,2), pose(0,2));
                                     float yaw_err = normalize_angle(target_yaw - current_yaw);
 
-                                    float wz = std::clamp(1.6f * yaw_err, -0.9f, 0.9f);
-                                    float vx = 0.0f;
+                                    wz = std::clamp(1.6f * yaw_err, -0.9f, 0.9f);
                                     if (std::abs(yaw_err) < 0.35f) {
                                         vx = std::clamp(0.4f * dist, 0.08f, 0.28f);
                                     } else if (std::abs(yaw_err) < 0.70f) {
@@ -535,7 +729,7 @@ int main(int argc, char** argv) {
                                         vx = 0.0f; // чистый разворот на месте
                                     }
 
-                                    receiver.send_command(vx, 0.0f, wz, trace_id);
+                                    receiver.send_command(vx, 0.0f, wz, trace_id, active_tick_id);
 
                                     if (frame_counter % 5 == 0) {
                                         GTR_TRACE(trace_id, "OP13", "Navigating to " + inv.class_label_id + " via OPRN waypoints (dist: " + 
@@ -544,7 +738,9 @@ int main(int argc, char** argv) {
                                     }
                                 } else {
                                     // Цель достигнута! Остановка.
-                                    receiver.send_command(0.0f, 0.0f, 0.0f, trace_id);
+                                    vx = 0.0f;
+                                    wz = 0.0f;
+                                    receiver.send_command(0.0f, 0.0f, 0.0f, trace_id, active_tick_id);
                                     if (!goal_reached) {
                                         goal_reached = true;
                                         GTR_TRACE(trace_id, "MTV1", "GOAL CONTACT ACHIEVED! Reached target object '" + inv.class_label_id + "'.");
@@ -590,12 +786,8 @@ int main(int argc, char** argv) {
                     bool wall_ahead = (p_center.x() + fwd.x()*0.7f > 3.1f || p_center.x() + fwd.x()*0.7f < -1.1f ||
                                        p_center.y() + fwd.y()*0.7f > 2.1f || p_center.y() + fwd.y()*0.7f < -2.1f);
 
-                    float vx = 0.0f;
-                    float wz = 0.0f;
-
                     if (stuck_close || (blocked_front && blocked_left && blocked_right)) {
                         // УГОЛ / ТУПИК: обе стороны и перед заблокированы!
-                        // Маневр выхода: СДАЕМ НАЗАД (-0.12 м/с) с мягким отворотом в свободную сторону
                         vx = -0.12f;
                         wz = blocked_left ? -0.55f : 0.55f;
                         if (frame_counter % 10 == 0) {
@@ -619,15 +811,12 @@ int main(int argc, char** argv) {
                                       std::to_string(wz).substr(0,4) + ")");
                         }
                     } else if (blocked_left) {
-                        // Препятствие слева: подруливание вправо
                         vx = 0.14f;
                         wz = -0.45f;
                     } else if (blocked_right) {
-                        // Препятствие справа: подруливание влево
                         vx = 0.14f;
                         wz = 0.45f;
                     } else {
-                        // Свободный сектор: поступательное движение вперед
                         vx = 0.20f;
                         wz = 0.05f;
                         if (frame_counter % 10 == 0) {
@@ -640,12 +829,27 @@ int main(int argc, char** argv) {
                         }
                     }
 
-                    receiver.send_command(vx, 0.0f, wz, trace_id);
+                    receiver.send_command(vx, 0.0f, wz, trace_id, active_tick_id);
+                }
+
+                // 5. Синхронная публикация единого пакета тика (TICK_BUNDLE)
+                std::vector<gtr1::core::MP13Blom> cached;
+                if (prd1 && prd1->get_log()) {
+                    cached = prd1->get_log()->get_all_trajectories();
+                }
+                telemetry.send_tick_bundle(active_tick_id, ts, mp10->get_pose(), current_voxels,
+                                           path_start, path_end, has_path, invariants,
+                                           mtv1->get_target_class(), agent_pos, sim_active_blom,
+                                           cached, goal_reached);
+
+                if (frame_counter % 30 == 0) {
+                    GTR_TRACE(trace_id, "TICK", "Tick #" + std::to_string(active_tick_id) + " processed. Voxels: " + 
+                              std::to_string(current_voxels.size()) + ". Sensor: " + (is_clean ? "CLEAN" : "EMULATED_NOISE"));
                 }
             }
 
             // Остановка симулятора при выходе
-            receiver.send_command(0.0f, 0.0f, 0.0f, "SHUTDOWN");
+            receiver.send_command(0.0f, 0.0f, 0.0f, "SHUTDOWN", 0);
 
         } else {
             // === РЕЖИМ 2: Воспроизведение датасета TUM RGB-D ===
@@ -667,7 +871,6 @@ int main(int argc, char** argv) {
             size_t frame_counter = 0;
             std::shared_ptr<gtr1::core::MP13Blom> dataset_active_blom = nullptr;
             player.play(0, true, [&](size_t f_idx, double ts) {
-                (void)ts;
                 if (g_shutdown_requested.load()) {
                     player.stop();
                     return;
@@ -676,23 +879,13 @@ int main(int argc, char** argv) {
                 frame_counter++;
                 std::string trace_id = gtr1::core::TraceLogger::generate_trace_id(f_idx);
 
-                if (frame_counter % 5 == 0) {
-                    telemetry.send_pose(mp10->get_pose());
-                }
-
                 auto ds_voxels = mp10->get_occupied_voxels();
-                telemetry.send_map(ds_voxels);
-
                 auto invariants = mp11->get_domain_invariants();
                 Eigen::Vector3f agent_pos = mp10->get_pose().block<3,1>(0,3);
 
-                if (frame_counter % 5 == 0) {
-                    std::vector<gtr1::core::MP13Blom> cached;
-                    if (prd1 && prd1->get_log()) {
-                        cached = prd1->get_log()->get_all_trajectories();
-                    }
-                    telemetry.send_rtr_debug(invariants, mtv1->get_target_class(), agent_pos, dataset_active_blom, cached, mtv1->is_goal_achieved(agent_pos, 0.3f));
-                }
+                bool has_path = false;
+                Eigen::Vector3f path_start = agent_pos;
+                Eigen::Vector3f path_end = agent_pos;
 
                 for (const auto& inv : invariants) {
                     if (inv.class_label_id == mtv1->get_target_class()) {
@@ -709,8 +902,9 @@ int main(int argc, char** argv) {
                         dataset_active_blom = blom;
 
                         if (blom && blom->is_complete) {
-                            telemetry.send_path(agent_pos, inv.bounding_box.center);
-                            telemetry.send_voxel(inv.bounding_box.center.x(), inv.bounding_box.center.y(), inv.bounding_box.center.z());
+                            has_path = true;
+                            path_start = agent_pos;
+                            path_end = inv.bounding_box.center;
 
                             if (frame_counter % 15 == 0) {
                                 GTR_TRACE(trace_id, "RTR", "Target '" + inv.class_label_id + "' tracked. Distance to zero: " +
@@ -727,6 +921,15 @@ int main(int argc, char** argv) {
                         break;
                     }
                 }
+
+                std::vector<gtr1::core::MP13Blom> cached;
+                if (prd1 && prd1->get_log()) {
+                    cached = prd1->get_log()->get_all_trajectories();
+                }
+                telemetry.send_tick_bundle(f_idx, ts, mp10->get_pose(), ds_voxels,
+                                           path_start, path_end, has_path, invariants,
+                                           mtv1->get_target_class(), agent_pos, dataset_active_blom,
+                                           cached, mtv1->is_goal_achieved(agent_pos, 0.3f));
             });
         }
 

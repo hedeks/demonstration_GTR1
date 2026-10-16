@@ -398,6 +398,134 @@ function connectWS() {
         console.error('WebSocket Error:', err);
     };
 
+
+    function applyVoxels(voxels) {
+        const count = voxels ? voxels.length : 0;
+        if (count > 0) {
+            const voxelCounter = document.getElementById('voxel-val');
+            if (voxelCounter) voxelCounter.innerText = count.toLocaleString();
+            
+            if (count > maxVoxelCapacity) {
+                maxVoxelCapacity = Math.max(count * 2, maxVoxelCapacity * 2);
+                scene.remove(instancedVoxelsFill);
+                scene.remove(instancedVoxelsWire);
+                instancedVoxelsFill.dispose();
+                instancedVoxelsWire.dispose();
+                instancedVoxelsFill = new THREE.InstancedMesh(geometry, voxelFillMat, maxVoxelCapacity);
+                instancedVoxelsWire = new THREE.InstancedMesh(geometry, voxelWireMat, maxVoxelCapacity);
+                scene.add(instancedVoxelsFill);
+                scene.add(instancedVoxelsWire);
+            }
+
+            instancedVoxelsFill.count = count;
+            instancedVoxelsWire.count = count;
+            
+            const dummy = new THREE.Object3D();
+            for (let i = 0; i < count; i++) {
+                dummy.position.set(voxels[i].x, voxels[i].z, -voxels[i].y);
+                dummy.updateMatrix();
+                instancedVoxelsFill.setMatrixAt(i, dummy.matrix);
+                instancedVoxelsWire.setMatrixAt(i, dummy.matrix);
+            }
+            instancedVoxelsFill.instanceMatrix.needsUpdate = true;
+            instancedVoxelsWire.instanceMatrix.needsUpdate = true;
+        }
+    }
+
+    function applyPath(points) {
+        if (!points || points.length === 0) return;
+        const newPoints = points.map(p => new THREE.Vector3(p.x, p.z, -p.y));
+        const newGeom = new THREE.BufferGeometry().setFromPoints(newPoints);
+        routeLine.geometry.dispose();
+        routeLine.geometry = newGeom;
+    }
+
+    function applyPose(data, isSim) {
+        simRobotGroup.visible = isSim;
+        datasetCameraGroup.visible = !isSim;
+
+        if (!datasetViewInitialized && !isSim) {
+            datasetViewInitialized = true;
+            camera.position.set(2.4, 2.3, 0.5);
+            controls.target.set(0.6, 0.7, -1.2);
+            controls.update();
+        }
+
+        const q_w2t = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+        const posX = data.x;
+        const posY = data.y;
+        const posZ = data.z;
+        const qx = data.qx || 0, qy = data.qy || 0, qz = data.qz || 0, qw = (data.qw !== undefined ? data.qw : 1);
+
+        let yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+        if (isSim && data.yaw !== undefined) {
+            yawDeg = Math.round(data.yaw * 180 / Math.PI);
+            pitchDeg = 0;
+            rollDeg = 0;
+        } else {
+            const siny_cosp = 2 * (qw * qz + qx * qy);
+            const cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
+            yawDeg = Math.round(Math.atan2(siny_cosp, cosy_cosp) * 180 / Math.PI);
+
+            const sinp = 2 * (qw * qy - qz * qx);
+            if (Math.abs(sinp) >= 1) {
+                pitchDeg = Math.round(Math.sign(sinp) * 90);
+            } else {
+                pitchDeg = Math.round(Math.asin(sinp) * 180 / Math.PI);
+            }
+
+            const sinr_cosp = 2 * (qw * qx + qy * qz);
+            const cosr_cosp = 1 - 2 * (qx * qx + qy * qy);
+            rollDeg = Math.round(Math.atan2(sinr_cosp, cosr_cosp) * 180 / Math.PI);
+        }
+
+        const robotPosElem = document.getElementById('robot-pos-val');
+        if (robotPosElem) {
+            robotPosElem.innerText = `[${posX.toFixed(2)}, ${posY.toFixed(2)}, ${posZ.toFixed(2)}]`;
+        }
+        const robotYawElem = document.getElementById('robot-yaw-val');
+        if (robotYawElem) {
+            robotYawElem.innerText = `${yawDeg}°`;
+        }
+
+        const hudPos = document.getElementById('hud-pos');
+        if (hudPos) {
+            hudPos.innerText = `X: ${posX >= 0 ? '+' : ''}${posX.toFixed(3)}m  Y: ${posY >= 0 ? '+' : ''}${posY.toFixed(3)}m  Z: ${posZ >= 0 ? '+' : ''}${posZ.toFixed(3)}m`;
+        }
+        const hudRot = document.getElementById('hud-rot');
+        if (hudRot) {
+            hudRot.innerText = `Yaw: ${yawDeg}°  Pitch: ${pitchDeg}°  Roll: ${rollDeg}°`;
+        }
+        const hudQuat = document.getElementById('hud-quat');
+        if (hudQuat) {
+            hudQuat.innerText = `[${qx.toFixed(2)}, ${qy.toFixed(2)}, ${qz.toFixed(2)}, ${qw.toFixed(2)}]`;
+        }
+
+        if (isSim) {
+            agentMesh.position.set(data.x, 0.0, -data.y);
+            if (data.yaw !== undefined) {
+                agentMesh.rotation.set(0, data.yaw, 0);
+                const gyroElem = document.getElementById('gyro-val');
+                if (gyroElem) gyroElem.innerText = `Cam P: -25° | Yaw: ${Math.round(data.yaw * 180 / Math.PI)}°`;
+            }
+        } else {
+            agentMesh.position.set(data.x, data.z, -data.y);
+            const qRaw = new THREE.Quaternion(data.qx, data.qy, data.qz, data.qw);
+            const qThree = q_w2t.clone().multiply(qRaw);
+            agentMesh.quaternion.copy(qThree);
+
+            const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(qRaw);
+            const horiz = Math.sqrt(fwd.x * fwd.x + fwd.y * fwd.y);
+            const pDeg = Math.round(Math.atan2(fwd.z, horiz) * 180 / Math.PI);
+            const yDeg = Math.round(Math.atan2(fwd.y, fwd.x) * 180 / Math.PI);
+
+            const gyroElem = document.getElementById('gyro-val');
+            if (gyroElem) {
+                gyroElem.innerText = `P: ${pDeg}° | Y: ${yDeg}°`;
+            }
+        }
+    }
+
     ws.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
@@ -436,6 +564,28 @@ function connectWS() {
                     ctx.fillText(`${box.label} (${Math.round(box.confidence * 100)}%)`, x - w/2 + 2, y - h/2 - 4);
                 }
             }
+            else if (data.type === 'TICK_BUNDLE') {
+                const isSim = (data.mode === 'SIM' || data.mode !== 'DATASET');
+                currentMode = isSim ? 'SIM' : 'DATASET';
+                const modeElem = document.getElementById('mode-val');
+                if (modeElem) modeElem.innerText = currentMode;
+
+                const tickElem = document.getElementById('tick-val');
+                if (tickElem && data.tick_id !== undefined) {
+                    tickElem.innerText = `#${data.tick_id}`;
+                }
+
+                if (data.pose) {
+                    applyPose(data.pose, isSim);
+                }
+                if (data.voxels && data.voxels.length > 0) {
+                    applyVoxels(data.voxels);
+                }
+                if (data.path && data.path.length > 0) {
+                    applyPath(data.path);
+                }
+                updateRTRDebug(data);
+            }
             else if (data.type === 'VOXEL') {
                 if (targetMarker) {
                     targetMarker.position.set(data.x, data.z, -data.y);
@@ -443,145 +593,17 @@ function connectWS() {
                 }
             }
             else if (data.type === 'MAP') {
-                const count = data.voxels ? data.voxels.length : 0;
-                if (count > 0) {
-                    const voxelCounter = document.getElementById('voxel-val');
-                    if (voxelCounter) voxelCounter.innerText = count.toLocaleString();
-                    
-                    if (count > maxVoxelCapacity) {
-                        maxVoxelCapacity = Math.max(count * 2, maxVoxelCapacity * 2);
-                        scene.remove(instancedVoxelsFill);
-                        scene.remove(instancedVoxelsWire);
-                        instancedVoxelsFill.dispose();
-                        instancedVoxelsWire.dispose();
-                        instancedVoxelsFill = new THREE.InstancedMesh(geometry, voxelFillMat, maxVoxelCapacity);
-                        instancedVoxelsWire = new THREE.InstancedMesh(geometry, voxelWireMat, maxVoxelCapacity);
-                        scene.add(instancedVoxelsFill);
-                        scene.add(instancedVoxelsWire);
-                    }
-
-                    instancedVoxelsFill.count = count;
-                    instancedVoxelsWire.count = count;
-                    
-                    const dummy = new THREE.Object3D();
-                    for (let i = 0; i < count; i++) {
-                        dummy.position.set(data.voxels[i].x, data.voxels[i].z, -data.voxels[i].y);
-                        dummy.updateMatrix();
-                        instancedVoxelsFill.setMatrixAt(i, dummy.matrix);
-                        instancedVoxelsWire.setMatrixAt(i, dummy.matrix);
-                    }
-                    instancedVoxelsFill.instanceMatrix.needsUpdate = true;
-                    instancedVoxelsWire.instanceMatrix.needsUpdate = true;
-                }
+                applyVoxels(data.voxels);
             }
             else if (data.type === 'PATH') {
-                const newPoints = data.points.map(p => new THREE.Vector3(p.x, p.z, -p.y));
-                const newGeom = new THREE.BufferGeometry().setFromPoints(newPoints);
-                routeLine.geometry.dispose();
-                routeLine.geometry = newGeom;
+                applyPath(data.points);
             }
             else if (data.type === 'POSE') {
                 const isSim = (data.mode === 'SIM' || data.mode !== 'DATASET');
                 currentMode = isSim ? 'SIM' : 'DATASET';
                 const modeElem = document.getElementById('mode-val');
                 if (modeElem) modeElem.innerText = currentMode;
-
-                // Переключение отображения шасси робота (SIM) vs ручной камеры с фрустумом (DATASET)
-                simRobotGroup.visible = isSim;
-                datasetCameraGroup.visible = !isSim;
-
-                // Автоматическая калибровка камеры дашборда при первом переходе в режим DATASET
-                if (!datasetViewInitialized && !isSim) {
-                    datasetViewInitialized = true;
-                    camera.position.set(2.4, 2.3, 0.5);
-                    controls.target.set(0.6, 0.7, -1.2);
-                    controls.update();
-                }
-
-                // Позиция агента: (x, z, -y)
-                agentMesh.position.set(data.x, data.z, -data.y);
-
-                // Базисное преобразование поворота Z-up (World) -> Y-up (Three.js): поворот на -90 град вокруг оси X
-                const q_w2t = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-
-                // --- SE(3) Pose Telemetry HUD Updates ---
-                const posX = data.x;
-                const posY = data.y;
-                const posZ = data.z;
-                const qx = data.qx || 0, qy = data.qy || 0, qz = data.qz || 0, qw = (data.qw !== undefined ? data.qw : 1);
-
-                let yawDeg = 0, pitchDeg = 0, rollDeg = 0;
-                if (isSim && data.yaw !== undefined) {
-                    yawDeg = Math.round(data.yaw * 180 / Math.PI);
-                    pitchDeg = 0;
-                    rollDeg = 0;
-                } else {
-                    const siny_cosp = 2 * (qw * qz + qx * qy);
-                    const cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
-                    yawDeg = Math.round(Math.atan2(siny_cosp, cosy_cosp) * 180 / Math.PI);
-
-                    const sinp = 2 * (qw * qy - qz * qx);
-                    if (Math.abs(sinp) >= 1) {
-                        pitchDeg = Math.round(Math.sign(sinp) * 90);
-                    } else {
-                        pitchDeg = Math.round(Math.asin(sinp) * 180 / Math.PI);
-                    }
-
-                    const sinr_cosp = 2 * (qw * qx + qy * qz);
-                    const cosr_cosp = 1 - 2 * (qx * qx + qy * qy);
-                    rollDeg = Math.round(Math.atan2(sinr_cosp, cosr_cosp) * 180 / Math.PI);
-                }
-
-                // Update Header metrics
-                const robotPosElem = document.getElementById('robot-pos-val');
-                if (robotPosElem) {
-                    robotPosElem.innerText = `[${posX.toFixed(2)}, ${posY.toFixed(2)}, ${posZ.toFixed(2)}]`;
-                }
-                const robotYawElem = document.getElementById('robot-yaw-val');
-                if (robotYawElem) {
-                    robotYawElem.innerText = `${yawDeg}°`;
-                }
-
-                // Update 3D Floating HUD
-                const hudPos = document.getElementById('hud-pos');
-                if (hudPos) {
-                    hudPos.innerText = `X: ${posX >= 0 ? '+' : ''}${posX.toFixed(3)}m  Y: ${posY >= 0 ? '+' : ''}${posY.toFixed(3)}m  Z: ${posZ >= 0 ? '+' : ''}${posZ.toFixed(3)}m`;
-                }
-                const hudRot = document.getElementById('hud-rot');
-                if (hudRot) {
-                    hudRot.innerText = `Yaw: ${yawDeg}°  Pitch: ${pitchDeg}°  Roll: ${rollDeg}°`;
-                }
-                const hudQuat = document.getElementById('hud-quat');
-                if (hudQuat) {
-                    hudQuat.innerText = `[${qx.toFixed(2)}, ${qy.toFixed(2)}, ${qz.toFixed(2)}, ${qw.toFixed(2)}]`;
-                }
-
-                if (isSim) {
-                    // Робот строго на плоскости пола: Y=0.0 (Three.js), поворот только в горизонте Yaw!
-                    agentMesh.position.set(data.x, 0.0, -data.y);
-                    if (data.yaw !== undefined) {
-                        agentMesh.rotation.set(0, data.yaw, 0);
-                        const gyroElem = document.getElementById('gyro-val');
-                        if (gyroElem) gyroElem.innerText = `Cam P: -25° | Yaw: ${Math.round(data.yaw * 180 / Math.PI)}°`;
-                    }
-                } else {
-                    // В режиме DATASET человек держит камеру с естественным наклоном (~ -45°) к столу
-                    const qRaw = new THREE.Quaternion(data.qx, data.qy, data.qz, data.qw);
-                    // Точный кватернион ориентации в Three.js: q_three = q_w2t * q_raw
-                    const qThree = q_w2t.clone().multiply(qRaw);
-                    agentMesh.quaternion.copy(qThree);
-
-                    // Расчет физических углов наклона камеры для индикатора гироскопа
-                    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(qRaw);
-                    const horiz = Math.sqrt(fwd.x * fwd.x + fwd.y * fwd.y);
-                    const pitchDeg = Math.round(Math.atan2(fwd.z, horiz) * 180 / Math.PI);
-                    const yawDeg = Math.round(Math.atan2(fwd.y, fwd.x) * 180 / Math.PI);
-
-                    const gyroElem = document.getElementById('gyro-val');
-                    if (gyroElem) {
-                        gyroElem.innerText = `P: ${pitchDeg}° | Y: ${yawDeg}°`;
-                    }
-                }
+                applyPose(data, isSim);
             }
             else if (data.type === 'RTR_DEBUG') {
                 updateRTRDebug(data);

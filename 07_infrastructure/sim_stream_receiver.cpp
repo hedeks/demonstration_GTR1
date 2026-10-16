@@ -62,6 +62,18 @@ bool SimStreamReceiver::poll_frame(cv::Mat& out_rgb,
                                    std::string& out_trace_id,
                                    bool& out_is_clean,
                                    int timeout_ms) {
+    uint64_t dummy_frame_id = 0;
+    return poll_frame(out_rgb, out_depth, out_pose, out_timestamp, out_trace_id, out_is_clean, dummy_frame_id, timeout_ms);
+}
+
+bool SimStreamReceiver::poll_frame(cv::Mat& out_rgb,
+                                   cv::Mat& out_depth,
+                                   Eigen::Matrix4f& out_pose,
+                                   double& out_timestamp,
+                                   std::string& out_trace_id,
+                                   bool& out_is_clean,
+                                   uint64_t& out_frame_id,
+                                   int timeout_ms) {
     if (!zmq_sub_) return false;
 
     int rcvtimeo = timeout_ms;
@@ -88,6 +100,7 @@ bool SimStreamReceiver::poll_frame(cv::Mat& out_rgb,
     out_timestamp = frame_proto.meta().timestamp();
     out_trace_id = frame_proto.meta().trace_id();
     out_is_clean = frame_proto.is_clean_mode();
+    out_frame_id = frame_proto.meta().frame_id();
 
     // 1. Декодирование RGB (JPEG -> cv::Mat BGR)
     std::vector<uchar> rgb_buf(frame_proto.rgb_image_data().begin(), frame_proto.rgb_image_data().end());
@@ -110,11 +123,12 @@ bool SimStreamReceiver::poll_frame(cv::Mat& out_rgb,
     return (!out_rgb.empty() && !out_depth.empty());
 }
 
-void SimStreamReceiver::send_command(float vx, float vy, float wz, const std::string& trace_id) {
+void SimStreamReceiver::send_command(float vx, float vy, float wz, const std::string& trace_id, uint64_t frame_id) {
     if (!zmq_pub_) return;
 
     gtr1::ipc::KinematicCommand cmd;
     cmd.mutable_meta()->set_trace_id(trace_id);
+    cmd.mutable_meta()->set_frame_id(frame_id);
     cmd.mutable_velocity()->set_x(vx);
     cmd.mutable_velocity()->set_y(vy);
     cmd.mutable_velocity()->set_z(0.0f);

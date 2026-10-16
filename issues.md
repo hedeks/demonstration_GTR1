@@ -16,7 +16,7 @@
 | **ISSUE-06** | `core` | **P3 (Low)** | Модуль самообучения и непрерывной функции ошибки TCH1 | `OPEN` |
 | **ISSUE-07** | `core` | **P3 (Low)** | Планировщик фаз консолидации памяти («сон» агента) SCH1 | `OPEN` |
 | **ISSUE-08** | `infra` / `sec` | **P3 (Low)** | Подсистема алертинга и базовые политики безопасности IPC/WS | `OPEN` |
-| **ISSUE-09** | `core` / `sim` / `ui` | **P1 (High)** | Система детерминированного тикрейта и кадровой синхронизации (Lock-step Frame Sync) | `OPEN` |
+| **ISSUE-09** | `core` / `sim` / `ui` | **P1 (High)** | [Система детерминированного тикрейта и кадровой синхронизации](issues/ISSUE-09_tickrate_sync.md) | **`RESOLVED`** ✅ |
 
 ---
 
@@ -130,6 +130,7 @@
 ### ISSUE-09: Система детерминированного тикрейта и кадровой синхронизации (Lock-step Frame Sync & Unified Tick Packet)
 * **Компонент:** `src/main.cpp`, `src/simulation/pybullet_env.py`, `07_infrastructure/sim_stream_receiver.hpp`, `07_infrastructure/dashboard/app.js`, `src/ml_service/ws_bridge.py`
 * **Приоритет:** **P1**
+* **Статус:** **RESOLVED** ✅ ([Подробный отчет о решении](issues/ISSUE-09_tickrate_sync.md))
 * **Проблема:** В текущей кодовой базе потоки данных рассинхронизированы:
   * Поза робота `send_pose` и граф целей `send_rtr_debug` отправляются раз в 5 кадров (`frame_counter % 5 == 0`), в то время как воксели карты `send_map` и `send_voxel` отправляются отдельно с переменной периодичностью.
   * Симулятор PyBullet работает в свободном цикле (`time.sleep(dt - elapsed)`), не дожидаясь завершения такта DTR/RTR ядра C++, что вызывает дрейф кадров (time jitter).

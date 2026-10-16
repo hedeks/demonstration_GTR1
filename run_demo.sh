@@ -9,6 +9,7 @@ MODE="sim"
 SENSOR_MODE="clean"
 HEADLESS="--headless"
 MAIN_ARGS="--sim"
+SYNC_FLAG=""
 
 # Parse CLI arguments
 for arg in "$@"
@@ -30,12 +31,15 @@ do
         --headless)
             HEADLESS="--headless"
             ;;
+        --sync-step|--sync)
+            SYNC_FLAG="--sync-step"
+            ;;
     esac
 done
 
 echo "=========================================================="
 echo "      🚀 GTR1 Neuro-Symbolic MVP Orchestrator           "
-echo "  Mode: $MODE | Sensor: $SENSOR_MODE | Display: ${HEADLESS:-GUI} "
+echo "  Mode: $MODE | Sensor: $SENSOR_MODE | Display: ${HEADLESS:-GUI} | Sync: ${SYNC_FLAG:-continuous}"
 echo "=========================================================="
 
 echo "[1/7] Cleaning up previous processes and ports..."
@@ -82,7 +86,7 @@ CNN_PID=$!
 SIM_PID=""
 if [ "$MODE" = "sim" ]; then
     echo "[6/7] Starting PyBullet Virtual Environment ($SENSOR_MODE mode)..."
-    python3 -u src/simulation/pybullet_env.py $HEADLESS --sensor-mode "$SENSOR_MODE" > /tmp/gtr1_pybullet.log 2>&1 &
+    python3 -u src/simulation/pybullet_env.py $HEADLESS --sensor-mode "$SENSOR_MODE" $SYNC_FLAG > /tmp/gtr1_pybullet.log 2>&1 &
     SIM_PID=$!
 else
     echo "[6/7] Skipping PyBullet (using recorded TUM dataset)..."
