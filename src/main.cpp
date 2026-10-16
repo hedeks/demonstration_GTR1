@@ -246,14 +246,22 @@ public:
         float yaw = (mode_ == "SIM") ? std::atan2(pose(1,2), pose(0,2)) : 0.0f;
         float ground_z = (mode_ == "SIM") ? 0.0f : pos.z();
 
+        // Синхронизация: поза и путь шлются каждый тик (60 FPS), воксели карты — каждые 5 тиков
+        bool has_map_update = (tick_id % 5 == 0) && !voxels.empty();
+
         std::string json;
-        json.reserve(voxels.size() * 26 + 2048);
+        if (has_map_update) {
+            json.reserve(voxels.size() * 26 + 2048);
+        } else {
+            json.reserve(2048);
+        }
 
         json = "{\"type\":\"TICK_BUNDLE\",\"mode\":\"" + mode_ + "\",";
         json += "\"tick_id\":" + std::to_string(tick_id) + ",";
         json += "\"timestamp\":" + std::to_string(timestamp) + ",";
+        json += "\"has_map_update\":" + std::string(has_map_update ? "true" : "false") + ",";
 
-        // 1. Pose
+        // 1. Pose (обновляется строго синхронно на каждом тике)
         json += "\"pose\":{";
         json += "\"x\":" + std::to_string(pos.x()) + ",";
         json += "\"y\":" + std::to_string(pos.y()) + ",";
@@ -265,14 +273,16 @@ public:
         json += "\"qz\":" + std::to_string(q.z()) + ",";
         json += "\"qw\":" + std::to_string(q.w()) + "},";
 
-        // 2. Voxels
-        json += "\"voxels\":[";
+        // 2. Voxels (передаются только при has_map_update == true)
         char buf[64];
-        for (size_t i = 0; i < voxels.size(); ++i) {
-            int len = snprintf(buf, sizeof(buf), "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}",
-                               voxels[i].x(), voxels[i].y(), voxels[i].z());
-            json.append(buf, len);
-            if (i + 1 < voxels.size()) json.push_back(',');
+        json += "\"voxels\":[";
+        if (has_map_update) {
+            for (size_t i = 0; i < voxels.size(); ++i) {
+                int len = snprintf(buf, sizeof(buf), "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}",
+                                   voxels[i].x(), voxels[i].y(), voxels[i].z());
+                json.append(buf, len);
+                if (i + 1 < voxels.size()) json.push_back(',');
+            }
         }
         json += "],";
 

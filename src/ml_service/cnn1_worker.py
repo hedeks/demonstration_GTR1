@@ -21,6 +21,7 @@ if script_dir not in sys.path:
 
 import ipc_messages_pb2
 import gtr1_structures_pb2
+import torch
 from ultralytics import YOLO
 
 class CNN1Worker:
@@ -57,12 +58,17 @@ class CNN1Worker:
             if os.path.exists(parent_path):
                 actual_model_path = parent_path
 
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+        print(f"[CNN1] Hardware Acceleration: {self.device} ({device_name})")
+
         self.model = YOLO(actual_model_path)
-        print(f"[CNN1] Model loaded: {actual_model_path}. Ready on REP port {rep_port}, PUB port {pub_port}.")
+        self.model.to(self.device)
+        print(f"[CNN1] Model loaded: {actual_model_path} on {self.device}. Ready on REP port {rep_port}, PUB port {pub_port}.")
 
         # Прогрев модели (warmup)
         dummy = np.zeros((480, 640, 3), dtype=np.uint8)
-        self.model(dummy, verbose=False)
+        self.model(dummy, device=self.device, verbose=False)
 
     def _handle_exit(self, signum, frame):
         self.running = False
@@ -107,8 +113,8 @@ class CNN1Worker:
             np_depth = np.frombuffer(depth_bytes, np.uint8)
             depth_img = cv2.imdecode(np_depth, cv2.IMREAD_UNCHANGED)
 
-        # Инференс YOLOv8
-        results = self.model(img, verbose=False)
+        # Инференс YOLOv8 с ускорением на GPU
+        results = self.model(img, device=self.device, verbose=False)
         detected_objects = []
         visual_bboxes = []
 
