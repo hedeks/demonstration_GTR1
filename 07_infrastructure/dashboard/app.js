@@ -793,19 +793,40 @@ function renderOprnTree(nodes) {
             actionType = 'action-reverse';
         }
 
+        // Exact 3D coordinates for start and end
+        const sx = node.start ? node.start.x.toFixed(2) : '0.00';
+        const sy = node.start ? node.start.y.toFixed(2) : '0.00';
+        const sz = node.start ? node.start.z.toFixed(2) : '0.20';
+        const ex = node.end ? node.end.x.toFixed(2) : '0.00';
+        const ey = node.end ? node.end.y.toFixed(2) : '0.00';
+        const ez = node.end ? node.end.z.toFixed(2) : '0.20';
+
+        const subTooltip = `Origin [${node.subject_ref || 'agent'}]: X=${sx}m, Y=${sy}m, Z=${sz}m`;
+        const tgtTooltip = `Waypoint [${node.target_ref || 'target'}]: X=${ex}m, Y=${ey}m, Z=${ez}m (Click to Focus 3D View)`;
+
+        let statusIcon = '<i class="fas fa-clock"></i>';
+        if (node.status === 'EXECUTED') statusIcon = '<i class="fas fa-check-circle"></i>';
+        else if (node.status === 'VALIDATED') statusIcon = '<i class="fas fa-bolt"></i>';
+        else if (node.status === 'COLLISION') statusIcon = '<i class="fas fa-exclamation-triangle"></i>';
+
         html += `
-            <div class="oprn-node-card">
+            <div class="oprn-node-card oprn-card-${node.status || 'PENDING'}" onclick="focusWaypoint(${ex}, ${ez}, -${ey}, '${node.target_ref}')">
                 <div class="oprn-node-top">
                     <div>
                         <span class="oprn-step-tag">Step #${node.index || 1}</span>
                         <span class="oprn-step-uuid">${node.uuid}</span>
                     </div>
-                    <span class="oprn-status ${statusClass}">${node.status || 'PENDING'}</span>
+                    <span class="oprn-status ${statusClass}">${statusIcon} ${node.status || 'PENDING'}</span>
                 </div>
                 <div class="oprn-valence-row">
-                    <span class="valence-badge" title="Subject Valence Slot 0">${node.subject_ref || 'agent'}</span>
+                    <span class="valence-badge" title="${subTooltip}"><i class="fas fa-cube"></i> ${node.subject_ref || 'agent'}</span>
                     <span class="valence-arrow">──( b-vector )──►</span>
-                    <span class="valence-badge" title="Target Valence Slot 1">${node.target_ref || 'target'}</span>
+                    <span class="valence-badge valence-target-badge" title="${tgtTooltip}"><i class="fas fa-map-marker-alt"></i> ${node.target_ref || 'target'}</span>
+                </div>
+                <div class="oprn-coords-row">
+                    <span class="wp-coord-chip" title="3D World Coordinates [X, Y, Z]">
+                        <i class="fas fa-crosshairs"></i> <b>${node.target_ref}</b>: [X: ${ex}, Y: ${ey}, Z: ${ez}]
+                    </span>
                 </div>
                 <div class="oprn-action-row">
                     <span class="action-badge ${actionType}"><i class="fas fa-arrows-alt"></i> Action: <b>${actionDesc}</b></span>
@@ -1149,3 +1170,11 @@ if (ctxStopRobotBtn) {
         }
     });
 }
+
+window.focusWaypoint = function(wx, wy, wz, label) {
+    if (typeof controls !== 'undefined' && controls && controls.target) {
+        controls.target.set(wx, wy, wz);
+        controls.update();
+        console.log(`[Dashboard] Focused 3D view on ${label} at [${wx}, ${wy}, ${wz}]`);
+    }
+};

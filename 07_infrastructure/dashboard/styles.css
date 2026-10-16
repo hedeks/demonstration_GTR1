@@ -907,3 +907,63 @@ body {
     width: 20px;
     justify-content: center;
 }
+
+/* Waypoint Coordinates & Rich Interactive Tooltips */
+.oprn-coords-row {
+    margin: 4px 0 8px 0;
+    display: flex;
+    align-items: center;
+}
+
+.wp-coord-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 210, 211, 0.12);
+    border: 1px solid rgba(0, 210, 211, 0.35);
+    color: #00d2d3;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.3px;
+    box-shadow: 0 0 10px rgba(0, 210, 211, 0.1);
+    transition: all 0.2s ease;
+}
+
+.wp-coord-chip:hover {
+    background: rgba(0, 210, 211, 0.25);
+    border-color: #00d2d3;
+    box-shadow: 0 0 14px rgba(0, 210, 211, 0.3);
+}
+
+.valence-target-badge {
+    cursor: pointer;
+    background: rgba(255, 140, 66, 0.15) !important;
+    border-color: rgba(255, 140, 66, 0.4) !important;
+    color: #ff8c42 !important;
+    transition: all 0.2s ease;
+}
+
+.valence-target-badge:hover {
+    background: rgba(255, 140, 66, 0.35) !important;
+    border-color: #ff8c42 !important;
+    box-shadow: 0 0 10px rgba(255, 140, 66, 0.4);
+    transform: translateY(-1px);
+}
+
+.oprn-card-EXECUTED {
+    border-left: 3px solid #00d2d3 !important;
+}
+
+.oprn-card-VALIDATED {
+    border-left: 3px solid #00ff88 !important;
+}
+
+.oprn-card-COLLISION {
+    border-left: 3px solid #ff3366 !important;
+}
+
+.oprn-card-PENDING {
+    border-left: 3px solid #ffaa00 !important;
+}
