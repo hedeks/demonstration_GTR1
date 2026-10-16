@@ -295,8 +295,7 @@ class PyBulletEnv:
             pass
 
     def run_loop(self):
-        sync_mode_str = "LOCK-STEP (Synchronous)" if self.sync_step else "REAL-TIME (Asynchronous)"
-        print(f"[PyBullet] Streaming live RGB-D on tcp://127.0.0.1:5560 @ {self.fps} FPS ({sync_mode_str})...", flush=True)
+        print(f"[PyBullet] Real-Time Physical Simulation active @ {self.fps} Hz target rate on tcp://127.0.0.1:5560...", flush=True)
         last_log = time.time()
         start_time = time.time()
 
@@ -306,48 +305,37 @@ class PyBulletEnv:
                 t0 = time.time()
                 current_time = t0 - start_time
 
-                if self.sync_step:
-                    # 1. Рендеринг и публикация кадра с frame_id
-                    rgb, depth, T_cam = self.render_rgbd()
-                    self.publish_frame(rgb, depth, T_cam, current_time)
+                # 1. Неблокирующий опрос актуальных кинематических команд от C++ контроллера робота
+                while True:
+                    try:
+                        cmd_data = self.sub_cmd.recv(flags=zmq.NOBLOCK)
+                        cmd = ipc_pb.KinematicCommand()
+                        cmd.ParseFromString(cmd_data)
+                        self.cmd_vx = cmd.velocity.x
+                        self.cmd_vy = cmd.velocity.y
+                        self.cmd_wz = cmd.angular_velocity.z
+                    except (zmq.Again, Exception):
+                        break
 
-                    # 2. Ожидание ответной команды от GTR1 C++ ядра (Lock-step)
-                    wait_t0 = time.time()
-                    while time.time() - wait_t0 < 0.25:
-                        try:
-                            cmd_data = self.sub_cmd.recv(flags=zmq.NOBLOCK)
-                            cmd = ipc_pb.KinematicCommand()
-                            cmd.ParseFromString(cmd_data)
-                            self.cmd_vx = cmd.velocity.x
-                            self.cmd_vy = cmd.velocity.y
-                            self.cmd_wz = cmd.angular_velocity.z
-                            break
-                        except zmq.Again:
-                            time.sleep(0.0005)
-                        except Exception:
-                            break
+                # 2. Физический движок живет в реальном времени (не ждет вычислений робота):
+                # Шаги физики строго соответствуют прошедшему астрономическому времени
+                actual_elapsed = t0 - last_frame_time
+                last_frame_time = t0
 
-                    # 3. Ровно один шаг физики строго после применения команды
+                steps = max(1, int(round(actual_elapsed / self.dt)))
+                steps = min(steps, 15)  # Ограничение всплесков для стабильности решения коллизий
+                for _ in range(steps):
                     self.step_physics_single()
 
-                else:
-                    # Асинхронный режим с ограничением FPS
-                    actual_elapsed = t0 - last_frame_time
-                    last_frame_time = t0
+                # 3. Генерация сенсорного кадра строго из ФАКТИЧЕСКОГО текущего положения камеры в движке
+                rgb, depth, T_cam = self.render_rgbd()
+                self.publish_frame(rgb, depth, T_cam, current_time)
 
-                    steps = max(1, int(actual_elapsed / self.dt))
-                    steps = min(steps, 10) 
-                    for _ in range(steps):
-                        self.step_physics()
-
-                    rgb, depth, T_cam = self.render_rgbd()
-                    self.publish_frame(rgb, depth, T_cam, current_time)
-
-                    elapsed = time.time() - t0
-                    if elapsed < 0: elapsed = 0.0
-                    sleep_time = max(0.0, self.dt - elapsed)
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
+                # 4. Регулирование частоты кадровой развертки камеры (до self.fps)
+                elapsed = time.time() - t0
+                sleep_time = max(0.0, self.dt - elapsed)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
 
                 if time.time() - last_log > 1.5:
                     mode_str = "CLEAN" if self.is_clean_mode else "EMULATED"
