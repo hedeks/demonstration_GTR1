@@ -315,8 +315,8 @@ UI -> UI : Атомарная перерисовка в Three.js (0ms лаг к�
 
 В GTR1 предиктор `PRD1` перенесен на концепцию **авторегрессионной генерации токенов действий**:
 1. **Токен действия OPRN:**
-   $$\text{OPRN}_t = \langle R_{\text{subject}}, \vec{b}_t, R_{\text{target}}, \text{action\_type} \rangle$$
-   где $\vec{b}_t \in \mathbb{R}^3$ — пространственный вектор перемещения, а $\text{action\_type} \in \{\text{APPROACH\_STANDOFF}, \text{NAVIGATE\_WAYPOINT}, \text{ALIGN\_FACING}, \text{TOUCH}\}$.
+   $$\text{OPRN}_t = \langle R_{\text{subject}}, \vec{b}_t, R_{\text{target}}, \text{action} \rangle$$
+   где $\vec{b}_t \in \mathbb{R}^3$ — пространственный вектор перемещения, а тип действия `action` $\in$ {`APPROACH_STANDOFF`, `NAVIGATE_WAYPOINT`, `ALIGN_FACING`, `TOUCH`}.
 2. **Аналогия с Function Calling в трансформерах:**
    Предиктор `PRD1` на макро-уровне не считает сантиметры колесной траектории. Он предсказывает следующий логический блок поведения:
    $$\pi_\theta(\text{OPRN}_t \mid \mathcal{S}_t, \text{Goal}_{\text{MTV1}}, \text{History}_{\text{TRL1}})$$
@@ -347,7 +347,7 @@ $$\vec{p}_{\text{standoff}} = \vec{p}_{\text{target}}^{xy} - d_{\text{standoff}}
 
 ### 5.3 Использование Эпизодического Опыта TRL1Log
 Перед запуском нейросетевой генерации `PRD1` обращается к базе накопленного опыта:
-$$Q(\text{Goal}, \text{StartPose}) = \arg\max_{\text{BLOM} \in \text{TRL1Log}} \left\{ \text{outcome\_marker}(\text{BLOM}) \mid \text{outcome} \ge 0.85 \land \|\vec{p}_{\text{start}} - \vec{p}_0\| < 0.3\text{ м} \right\}$$
+$$Q(\text{Goal}, \text{StartPose}) = \arg\max_{\text{BLOM} \in \text{TRL1Log}} \left[ \text{outcome}(\text{BLOM}) \mid \text{outcome} \ge 0.85 \land \|\vec{p}_{\text{start}} - \vec{p}_0\| < 0.3\,\text{m} \right]$$
 Если схожая траектория найдена в архиве, она воспроизводится как готовый шаблон (кристаллизованный рефлекс), сокращая время принятия решений до субмиллисекундного уровня ($< 0.5\text{ мс}$).
 
 ---
@@ -359,8 +359,8 @@ $$Q(\text{Goal}, \text{StartPose}) = \arg\max_{\text{BLOM} \in \text{TRL1Log}} \
 
 В целевой архитектуре оператор `SPL1` функционирует как высокочастотный **моторный мозжечок**:
 1. На каждом такте управления ($30\text{--}60\text{ Гц}$) `SPL1` рассчитывает непрерывную кривизну траектории $\kappa(t)$ и вектор приращений скоростей:
-   $$v_x(t + \Delta t) = \text{clamp}\left( v_x(t) + \Delta v_x, 0.0, V_{\max} \right)$$
-   $$w_z(t + \Delta t) = \text{clamp}\left( w_z(t) + \Delta w_z, -W_{\max}, W_{\max} \right)$$
+   $$v_x(t + \Delta t) = \operatorname{clamp}\left( v_x(t) + \Delta v_x, 0.0, V_{\max} \right)$$
+   $$w_z(t + \Delta t) = \operatorname{clamp}\left( w_z(t) + \Delta w_z, -W_{\max}, W_{\max} \right)$$
 2. Робот совершает развороты по плавным сопряженным дугам (Dubins / Reeds-Shepp curves) без полной остановки на месте.
 
 ### 6.2 Динамические Переменные OPRN
