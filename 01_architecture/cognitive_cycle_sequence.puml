@@ -1,63 +1,98 @@
 @startuml Cognitive_Cycle_Sequence
 autonumber
 skinparam backgroundColor #FEFEFE
-skinparam defaultFontName "Segoe UI", Arial, sans-serif
+skinparam defaultFontName sans-serif
 skinparam sequenceMessageAlign center
+skinparam roundcorner 6
 
-title Тактовый Когнитивный Цикл (Synchronous Cognitive Step Cycle)
+skinparam sequence {
+  ArrowColor #1F618D
+  ActorBorderColor #2C3E50
+  LifeLineBorderColor #34495E
+  LifeLineBackgroundColor #EBF5FB
+  ParticipantBorderColor #34495E
+  ParticipantBackgroundColor #EAEDED
+  ParticipantFontStyle bold
+}
+
+title Тактовый Когнитивный Цикл GTR1 (Synchronous Cognitive Step Cycle)
 
 actor "Оператор (Web UI)" as User
-participant "Three.js Dashboard" as UI
-participant "PyBullet (Физический мир)" as Sim
-participant "SLGW (Сенсорный шлюз)" as SLGW
-participant "CNN1 (CUDA YOLO/CLIP)" as ML
-participant "MP10 / MP11 (Память мира)" as Mem
-participant "MTV1 (Мотиватор)" as MTV1
-participant "PRD1 (Action-Token Policy)" as PRD1
-participant "SPL1 (Dynamic Splicer)" as SPL1
-participant "Safety Guard (Символический щит)" as Shield
+participant "Three.js Dashboard\n(Port 8000)" as UI
+participant "PyBullet Sim\n(Real-Time Physics 60Hz)" as Sim
+participant "SLGW Sensor Gateway\n(Kalman SE3 + Bilateral)" as SLGW
+participant "CNN1 + CLIP Service\n(CUDA FP16 ZMQ 5555)" as ML
+participant "Memory Core\n(MP10 Space + MP11 Objects)" as Mem
+participant "MTV1 Motivator\n(Need Vector Engine)" as MTV1
+participant "PRD1 Predictor\n(Action-Token Policy)" as PRD1
+participant "SPL1 Dynamic Splicer\n(Kinematic Cerebellum)" as SPL1
+participant "Safety Shield\n(Clearance Cylinder Raycast)" as Shield
+participant "TRL1 Log & TCH1\n(Episodic Evaluator)" as TRL1
 
-== 1. Фаза восприятия реального времени (Perception) ==
-Sim -> SLGW : SensorFrame (RGB, Depth, Ground-Truth T_cam, frame_id)
-SLGW -> ML : DetectionRequest(RGB, Depth) [ZMQ 5555]
-activate ML
-ML --> SLGW : DetectionResponse (3D BBoxes + CLIP Embeddings) [< 40ms]
-deactivate ML
-SLGW -> Mem : Update MP10 (OctoMap) + Update MP11 (Invariants)
+== 1. Фаза восприятия реального времени (DTR Perception) ==
+Sim -> SLGW : SensorFrame (RGB, Depth, T_cam, sim_timestamp, frame_id)
+note over Sim, SLGW
+  Физический движок работает в реальном времени.
+  Кадр снимается с точной позы камеры T_cam.
+end note
 
-== 2. Фаза мотивации и макро-рассуждения (Retro-Time Reasoning) ==
-User -> UI : Клик по цели / Ввод текста ("cup")
-UI -> MTV1 : TARGET: "cup" / NAV_POSE: (x, y)
-MTV1 -> Mem : Запрос координат целевого инварианта
-Mem --> MTV1 : Centroid target_pos
-MTV1 -> PRD1 : Инициация обратного хода RTR: Goal Need Vector
+SLGW -> Mem : Update MP10 (OctoMap 3D Voxelization 0.05m)
 
-alt Опыт найден в TRL1Log (outcome >= 0.85)
-    PRD1 -> PRD1 : Воспроизведение успешной цепочки BLOM
-else Генерация нового плана
-    PRD1 -> PRD1 : Авторегрессионное предсказание токенов OPRN (b-векторы)
+opt Кадр готов для детекции (Drop Latest / Background ML)
+    SLGW -> ML : DetectionRequest(RGB, Depth, frame_id) [ZMQ 5555]
+    activate ML
+    ML --> SLGW : DetectionResponse(3D BBoxes + 512-d CLIP Embeddings) [< 40ms]
+    deactivate ML
+    SLGW -> Mem : Update MP11 (Spatial Alignment & Invariant Merge)
 end
-PRD1 -> SPL1 : Активный токен OPRN(t): [agent_base -> b_vec -> target]
 
-== 3. Фаза микро-кинематики и символического щита (Execution) ==
-loop Контур кинематики (30-60 Гц)
-    SPL1 -> Mem : Запрос локального SDF (окрестность 1.5м)
-    SPL1 -> SPL1 : Предсказание гладких приращений (Δvx, Δwz, progress)
+== 2. Фаза мотивации и макро-рассуждения (RTR Reasoning) ==
+User -> UI : Клик по объекту / Текстовый ввод ("cup")
+UI -> MTV1 : SetGoal(target_label="cup" | target_uuid="OBJ-1")
+MTV1 -> Mem : Resolve Target 3D Centroid (R-component)
+Mem --> MTV1 : Return target_pos (x, y, z)
+MTV1 -> PRD1 : Trigger RTR: Goal Need Vector (Δx, Δy, Δz)
+
+alt Успешная цепочка найдена в TRL1Log (outcome >= 0.85)
+    PRD1 -> TRL1 : QueryBestTrajectory(target_label, current_pose)
+    TRL1 --> PRD1 : Cached BLOM (OPRN sequence)
+else Авторегрессионная генерация нового действия
+    PRD1 -> PRD1 : Predict Next Action Token: OPRN(t) = <Subject, b_vec, Target>
+end
+
+PRD1 -> SPL1 : Dispatch Active OPRN Token (Target b-vector)
+
+== 3. Фаза микро-кинематики и защитного барьера (Micro-Kinematic Execution) ==
+loop Высокочастотный контур управления шасси (30-60 Гц)
+    SPL1 -> Mem : Query Local SDF Slice (1.5m clearance sphere)
+    SPL1 -> SPL1 : Predict Kinematic Setpoints (Δvx, Δwz, progress, curvature)
     
-    SPL1 -> Shield : Проверка кандидата движения (vx, wz, dt)
-    Shield -> Mem : Raycast габаритного цилиндра (Clearance Envelope)
+    opt Локальное препятствие на пути b-вектора
+        SPL1 -> SPL1 : Elastic Warping (B-spline deformation around obstacle)
+    end
     
-    alt Траектория безопасна
-        Shield -> Sim : KinematicCommand(vx, 0.0, wz, frame_id)
-        Shield -> SPL1 : Status = VALIDATED
-    else Опасная близость к препятствию (< 0.20м)
-        Shield -> Sim : KinematicCommand(0.0, 0.0, escape_wz, frame_id)
-        Shield -> SPL1 : Feedback = COLLISION (Trigger Elastic Warping)
+    SPL1 -> Shield : Candidate Kinematics (vx, wz, dt, current_pose)
+    Shield -> Mem : Raycast Clearance Cylinder (Radius=0.25m, Height=0.40m)
+    
+    alt Путь свободен (Clearance >= 0.15m)
+        Shield -> Sim : KinematicCommand(vx, wz, frame_id)
+        Shield -> SPL1 : Status = VALIDATED (continue execution)
+    else Опасное сближение (Clearance < 0.15m)
+        Shield -> Sim : KinematicCommand(0.0, escape_wz, frame_id) [E-Stop]
+        Shield -> SPL1 : Feedback = COLLISION (Trigger Dynamic Warping / Re-evaluate)
+        Shield -> TRL1 : Report Collision Penalty
     end
 end
 
-== 4. Фаза атомарной синхронизации телеметрии (TICK_BUNDLE) ==
-SLGW -> UI : Unified TICK_BUNDLE (tick_id, Pose, Voxels[5-ticks], Path, BLOM, Goal)
-UI -> UI : Атомарная перерисовка кадра Three.js (0ms лаг, 60 FPS)
+== 4. Завершение сплайса и оценка исхода (Crystallization) ==
+alt Дистанция до цели <= 0.05м (b-вектор обнулен)
+    SPL1 -> Mem : Mark OPRN as EXECUTED (Crystallize splice)
+    SPL1 -> TRL1 : Log Completed BLOM Trajectory
+    TRL1 -> TRL1 : TCH1 Evaluates Outcome Marker (Progress, Time, Collisions) -> [0.0 .. 1.0]
+end
+
+== 5. Атомарная синхронизация телеметрии (TICK_BUNDLE) ==
+SLGW -> UI : Unified TICK_BUNDLE (tick_id, timestamp, Pose, Voxels[5-ticks], Path, Invariants, Goal)
+UI -> UI : Атомарная перерисовка в Three.js (0ms лаг кадра, 60 FPS)
 
 @enduml

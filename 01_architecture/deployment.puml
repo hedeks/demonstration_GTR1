@@ -1,45 +1,96 @@
 @startuml Deployment_Architecture
-skinparam nodeBackgroundColor white
+skinparam nodeBackgroundColor #FFFFFF
 skinparam componentStyle uml2
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName sans-serif
+skinparam roundcorner 8
 
-title Диаграмма Развертывания и IPC (Deployment & Communication - Native Host)
-
-node "Host System (Ubuntu 22.04 / WSL2)" {
-  
-  package "C++ Core (High Performance)" {
-    [Dataset Player / Sim Stream] --> [SLGW (SLAM)] : RGB-D (30/60 FPS)
-    [SLGW (SLAM)] --> [MP10 / MP11 / MP12 / MP13] : In-memory (Shared Pointers)
-    [SPL1 (Splicer)] <--> [MP10 / MP11 / MP12 / MP13]
-    [PRD1 (Predictor)] <--> [MP10 / MP11 / MP12 / MP13]
-    
-    portout "ZeroMQ (REQ)" as ZMQ_REQ
-    portin "ZeroMQ (PUB)" as ZMQ_PUB
-  }
-  
-  package "Python ML Service" {
-    component "CNN1 Worker (YOLOv8)" as CNN1
-    portin "ZeroMQ (REP)" as ZMQ_REP
-  }
-
-  package "Python Simulation" {
-    component "PyBullet Environment" as SimEnv
-    portin "ZeroMQ (REP/PUB)" as ZMQ_SIM
-  }
-  
-  ZMQ_REQ <--> ZMQ_REP : "Protobuf Messages (IPC)\n< 100ms Latency"
-  ZMQ_REQ <--> ZMQ_SIM : "SensorFrame & CmdVel (ZeroMQ)"
-  
-  package "WebSocket Bridge (Python)" {
-    component "ws_bridge.py" as WSBridge
-  }
-
-  ZMQ_PUB --> WSBridge : "ZeroMQ Telemetry (Port 5556)"
-  
-  node "User Browser" {
-    [Web Dashboard (Three.js)]
-  }
-  
-  WSBridge --> [Web Dashboard (Three.js)] : "WebSockets ws://localhost:8081"
+skinparam package {
+  BackgroundColor #F9FAFB
+  BorderColor #4B6584
+  FontColor #1E272C
+  FontStyle bold
 }
+
+skinparam component {
+  BackgroundColor #FFFFFF
+  BorderColor #2F3542
+  FontColor #2F3542
+  ArrowColor #3867D6
+}
+
+title Архитектура Развертывания и Межпроцессных Взаимодействий (Native Host Deployment)
+
+node "Host OS (Linux / WSL2 Ubuntu 22.04 LTS)" {
+  
+  package "C++ Cognitive Core Process: ./build/gtr1_main" {
+    component "Sensor Linker Gateway\n(SLGW Node)" as SLGW
+    component "Spatial & Object Memory\n(MP10 OctoMap + MP11 Invariants)" as MEM
+    component "Retro-Time Reasoner\n(MTV1 + PRD1 Action-Token Policy)" as PRD
+    component "Dynamic Kinematics & Shield\n(SPL1 + Safety Shield)" as KIN
+    component "Episodic Experience\n(TRL1 Log + TCH1 Evaluator)" as TRL
+    component "Telemetry Publisher\n(Unified TICK_BUNDLE)" as TELEM
+    
+    SLGW --> MEM : In-memory C++ pointers
+    MEM <--> PRD : High-speed RAM (O(1))
+    PRD --> KIN : Active OPRN Tokens
+    KIN <--> MEM : Local SDF & Raycasting
+    KIN --> TRL : Step / Trajectory Log
+    KIN --> TELEM : Pose & Velocity
+    MEM --> TELEM : Throttled Voxels
+  }
+
+  package "Python Simulation Process: pybullet_env.py" {
+    component "PyBullet 3D Physics\n(60 FPS Decoupled Clock)" as SIM_PHYS
+    component "Synthetic RGB-D Camera\n(Rendered from T_cam)" as SIM_CAM
+    component "Chassis Actuators Controller" as SIM_MOTORS
+    
+    SIM_PHYS --> SIM_CAM
+    SIM_MOTORS --> SIM_PHYS
+  }
+
+  package "Python Vision ML Service: cnn1_worker.py" {
+    component "CUDA Inference Engine\n(NVIDIA GPU FP16)" as CUDA_ENG
+    component "YOLOv8 3D Bounding Box Detector" as YOLO
+    component "CLIP ViT-B/32 Semantic Embedder" as CLIP
+    
+    CUDA_ENG --> YOLO
+    CUDA_ENG --> CLIP
+  }
+
+  package "Telemetry Bridge: ws_bridge.py" {
+    component "ZMQ-to-WebSocket Forwarder\n(Asyncio Event Loop)" as WS_BRIDGE
+  }
+
+  package "HTTP Static Server: python3 -m http.server 8000" {
+    component "Web Dashboard Assets\n(HTML5, CSS3, JS, Three.js)" as HTTP_SRV
+  }
+}
+
+node "Client Browser (Edge / Chrome / Firefox)" {
+  component "Three.js WebGL Dashboard\n(3D Space, HUD, Click-to-Nav)" as UI_APP
+}
+
+' IPC Connections
+SIM_CAM --> SLGW : "SensorFrame (Protobuf)\n[ZeroMQ PUB/SUB tcp://127.0.0.1:5557]"
+KIN --> SIM_MOTORS : "KinematicCommand (Protobuf)\n[ZeroMQ REQ/REP tcp://127.0.0.1:5558]"
+
+SLGW <--> CUDA_ENG : "DetectionRequest / DetectionResponse (Protobuf)\n[ZeroMQ REQ/REP tcp://127.0.0.1:5555, Drop Latest]"
+
+TELEM --> WS_BRIDGE : "TICK_BUNDLE (Atomic JSON)\n[ZeroMQ PUB tcp://127.0.0.1:5556]"
+WS_BRIDGE <--> UI_APP : "WebSocket Bi-directional Stream\n[ws://127.0.0.1:8081]"
+HTTP_SRV --> UI_APP : "HTTP Web App Delivery\n[http://127.0.0.1:8000]"
+
+note bottom of TELEM
+  Телеметрия публикуется атомарно:
+  поза робота, воксели (1 раз в 5 тиков),
+  путь OPRN и цель передаются в одном пакете.
+end note
+
+note bottom of CUDA_ENG
+  Высокоскоростной GPU инференс:
+  < 40 мс на кадр.
+  Работает асинхронно, не блокируя C++ ядро.
+end note
 
 @enduml

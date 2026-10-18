@@ -34,18 +34,22 @@
      ```json
      {
        "type": "TICK_BUNDLE",
-       "tick": 142,
-       "timestamp_ns": 1697470800000000,
-       "pose": { "x": 0.5, "y": 1.2, "z": 0.05, "qx": 0.0, "qy": 0.0, "qz": 0.1, "qw": 0.99 },
-       "map": [ { "x": 0.6, "y": 1.0, "z": 0.2, "state": "OCCUPIED" } ],
+       "mode": "SIM",
+       "tick_id": 142,
+       "timestamp": 1697470800000,
+       "has_map_update": true,
+       "pose": { "x": 0.5, "y": 1.2, "z": 0.0, "cam_z": 0.45, "yaw": 0.15, "qx": 0.0, "qy": 0.0, "qz": 0.1, "qw": 0.99 },
+       "voxels": [ { "x": 0.6, "y": 1.0, "z": 0.2 } ],
        "path": [ { "x": 0.0, "y": 0.0 }, { "x": 0.5, "y": 1.2 } ],
-       "valences": { ... }
+       "invariants": [ { "id": "OBJ-1", "label": "cup", "x": 1.2, "y": 0.8, "z": 0.75 } ],
+       "active_goal": "cup",
+       "goal_reached": false
      }
      ```
    - Пакет транслируется через `TelemetryPublisher` (ZMQ PUB 5556) в `ws_bridge.py` и поступает в веб-интерфейс.
 
 3. **Синхронный рендеринг дашборда (Three.js Dashboard):**
-   - Добавлен обработчик `handleTickBundle(data)` в `07_infrastructure/dashboard/app.js`.
+   - Добавлен атомарный обработчик `data.type === 'TICK_BUNDLE'` в `07_infrastructure/dashboard/app.js`.
    - Обновление Three.js мешей позы робота, инстансированного облака вокселей карты (InstancedMesh) и сплайна траектории происходит в рамках одного анимационного кадра `requestAnimationFrame`.
    - В HUD добавлен индикатор синхронизации: `Синхро-тик: #<id>`.
 
@@ -60,7 +64,7 @@
 | `src/simulation/pybullet_env.py` | Реализован флаг `--sync-step`, метод `step_physics_single()` и синхронный цикл с блокирующим ожиданием команды с совпадающим `frame_id`. |
 | `src/main.cpp` | Имплементирован сбор и публикация `TICK_BUNDLE` на каждом цикле RTR с фиксацией номера тика `current_tick`. |
 | `run_demo.sh` | Добавлена поддержка флага запуска `--sync-step` (или `--sync`). |
-| `07_infrastructure/dashboard/app.js` | Реализован метод `handleTickBundle` с атомарным обновлением позы, карты и пути. |
+| `07_infrastructure/dashboard/app.js` | Реализован атомарный обработчик `TICK_BUNDLE` с одновременным обновлением позы, вокселей карты и пути в одном кадре. |
 | `07_infrastructure/dashboard/index.html` | Добавлен HUD-виджет `Синхро-тик (#tick-val)`. |
 
 ---

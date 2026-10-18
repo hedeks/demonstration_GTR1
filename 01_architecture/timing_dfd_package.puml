@@ -1,37 +1,98 @@
 @startuml Timing_DFD_Package
 skinparam componentStyle uml2
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName sans-serif
+skinparam roundcorner 8
 
-title Архитектура (Package, DFD, Timing)
+skinparam package {
+  BackgroundColor #F8F9FA
+  BorderColor #5D6D7E
+  FontColor #1C2833
+  FontStyle bold
+}
 
-package "Core System (C++)" {
-  [Dataset Player] -right-> [SLGW] : "RGB-D Stream (33ms)"
-  [SLGW] -right-> [MP10 Space] : "Voxel Update (5ms)"
+skinparam component {
+  BackgroundColor #FFFFFF
+  BorderColor #2C3E50
+  FontColor #2C3E50
+  ArrowColor #2471A3
+}
+
+title Потоки Данных, Пакеты и Временные Бюджеты GTR1 (Package, DFD, Timing Budget)
+
+package "1. Physics & Simulation Engine (Python / Real Hardware)" {
+  [PyBullet Sim Environment\n(Decoupled 60 FPS / 16.6ms)] as SIM
+  [TUM RGB-D Dataset Player\n(Benchmark Replay 30 FPS)] as DATASET
+}
+
+package "2. C++ Cognitive Core (High Performance Subsystem)" {
+  [SLGW Sensor Linker Gateway\n(Kalman Filter + Bilateral Filter)] as SLGW
+  [MP10 Space Memory\n(OctoMap 3D Voxel Grid)] as MP10
+  [MP11 Object Manager\n(Invariant Fusion Engine)] as MP11
   
-  [SLGW] -down-> [CNN1 Worker] : "Image Bytes (Drop Latest)"
+  [MTV1 Motivator\n(Need Vector Engine)] as MTV1
+  [PRD1 Action Predictor\n(Action-Token Policy & TRL1 Recall)] as PRD1
+  [SPL1 Dynamic Splicer\n(Kinematic Policy & Elastic Warper)] as SPL1
+  [Safety Shield\n(Clearance Cylinder Raycast Guard)] as SHIELD
+  [TRL1 Log & TCH1 Evaluator\n(Episodic Outcome Storage)] as TRL1
 }
 
-package "ML Service (Python)" {
-  [CNN1 Worker] -up-> [MP11 Manager] : "BBox + Embeddings (100ms)"
+package "3. ML Vision & Semantic Service (Python / CUDA FP16)" {
+  [CNN1 + CLIP Vision Worker\n(YOLOv8 + ViT-B/32 on CUDA)] as ML_WORKER
 }
 
-package "Behavior & Execution" {
-  [MTV1 Motivator] -right-> [PRD1 Predictor] : "Goal UUID"
-  [MP11 Manager] -down-> [SPL1 Splicer] : "New Invariant Trigger"
-  
-  [PRD1 Predictor] -down-> [SPL1 Splicer] : "Form Splices"
-  [SPL1 Splicer] -left-> [MP10 Space] : "Raycast (2ms)"
+package "4. Telemetry & User Inspection (Browser / WebGL)" {
+  [Telemetry Publisher\n(Atomic TICK_BUNDLE Builder)] as TELEM
+  [WebSocket Bridge (ws_bridge.py)\n(Port 8081 Broadcast)] as WS
+  [Three.js Dashboard (app.js)\n(WebGL Canvas Port 8000)] as UI
 }
 
-note bottom of [SLGW]
-  Timing: 30 FPS (33ms)
+' Data Flow Interconnections
+SIM -down-> SLGW : "SensorFrame (RGB, Depth, Pose)\n[ZeroMQ SUB 5557 | 16.6ms / 60 FPS]"
+DATASET -.-> SLGW : "Offline Replay [33.3ms / 30 FPS]"
+
+SLGW -right-> MP10 : "Point Cloud Voxelization [3-5ms]"
+SLGW -down-> ML_WORKER : "DetectionRequest [ZMQ REQ/REP 5555]\nPolicy: Drop Latest"
+ML_WORKER -up-> MP11 : "DetectionResponse [Total < 40ms]\n(3D BBoxes + 512-d CLIP Vectors)"
+MP10 -.-> MP11 : "3D Spatial Alignment [< 1ms]"
+
+MTV1 -down-> PRD1 : "Target Need Vector [< 0.1ms]"
+MP11 -down-> PRD1 : "Observed Invariants [< 0.2ms]"
+TRL1 <-> PRD1 : "Episodic Trajectory Recall [< 0.5ms]"
+PRD1 -right-> SPL1 : "Active OPRN Token <Subject, b-vec, Target>\n[Inference / Plan < 8ms]"
+
+SPL1 -up-> MP10 : "Local 1.5m SDF Query [< 1.5ms]"
+SPL1 -down-> SHIELD : "Candidate (vx, wz, dt) [< 0.5ms]"
+MP10 -down-> SHIELD : "Clearance Envelope Raycast [< 0.2ms]"
+
+SHIELD -left-> SIM : "VALIDATED KinematicCommand\n[ZeroMQ REQ/REP 5558 | 30-60 Hz]"
+SHIELD -.-> SPL1 : "COLLISION: Feedback Penalty / Evasive Arc"
+SHIELD -.-> TRL1 : "Log Collision / Step Penalty"
+
+' Telemetry Flow
+SLGW -down-> TELEM : "tick_id, timestamp, Pose (SE3)"
+MP10 -down-> TELEM : "Voxel Cloud (Throttled: Every 5 Ticks)"
+MP11 -down-> TELEM : "Object Invariants"
+SPL1 -down-> TELEM : "Active OPRN Path & Status"
+MTV1 -down-> TELEM : "Goal Status"
+
+TELEM -right-> WS : "Atomic TICK_BUNDLE JSON\n[ZeroMQ PUB 5556 | < 0.5ms]"
+WS -right-> UI : "WebSocket Frame Stream [< 2ms]"
+UI -up-> MTV1 : "Interactive Target Setpoint (Click / Text)"
+
+note right of ML_WORKER
+  **ML Service Budget (GPU CUDA):**
+  * YOLOv8 Inference: ~8-12ms
+  * CLIP ViT-B/32 Embedding: ~20-25ms
+  * Total Round-Trip: < 40ms
+  * Asynchronous non-blocking to C++ Core
 end note
 
-note bottom of [CNN1 Worker]
-  Timing: 10 FPS (100ms)
-end note
-
-note bottom of [SPL1 Splicer]
-  Timing: 50 Hz (20ms)
+note bottom of SHIELD
+  **C++ Control Loop Budget (@ 60 Hz):**
+  * SLGW Filter + OctoMap: ~5-7ms
+  * SPL1 Kinematics + Shield Raycast: ~2ms
+  * Total C++ Tick Budget: < 10ms (Headroom > 6ms)
 end note
 
 @enduml

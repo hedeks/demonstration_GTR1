@@ -1,18 +1,66 @@
 @startuml MP12_State_Machine
-skinparam StateBackgroundColor LightBlue
-skinparam StateBorderColor DarkBlue
+skinparam defaultFontName sans-serif
+skinparam roundcorner 8
+skinparam backgroundColor #FEFEFE
 
-title Диаграмма Состояний (FSM) для Сплайса (MP12_OPRN)
+skinparam state {
+  BackgroundColor #EBF5FB
+  BorderColor #2980B9
+  FontColor #1B4F72
+  ArrowColor #1B4F72
+  StartColor #27AE60
+  EndColor #C0392B
+}
 
-[*] --> PENDING : Создан (Связка UUID Субъекта и Объекта)
+title Жизненный Цикл Сплайса MP12_OPRN и Схемы MP13_BLOM (Target FSM)
 
-PENDING --> VALIDATED : Raycast [путь свободен]
-PENDING --> COLLISION : Raycast [пересечение с вокселем MP10]
+[*] --> PENDING : 1. PRD1 генерирует токен OPRN\n<Subject, b-vec, Target>
 
-VALIDATED --> EXECUTED : Успешная отработка команд моторами (OP13)
-VALIDATED --> COLLISION : Динамическое препятствие (прерывание)
+state PENDING {
+  note "Валентности открыты.\nЦель зафиксирована." as N1
+}
 
-COLLISION --> [*] : Отбрасывается планировщиком (PRD1)
-EXECUTED --> [*] : Сплайс переносится в лог (TRL1) с позитивным маркером
+PENDING --> VALIDATING : Запрос траекторного шлюза (SPL1)
+
+state VALIDATING {
+  note "Raycast по OctoMap MP10\nна габарит шасси (0.25м)" as N2
+}
+
+VALIDATING --> VALIDATED : Путь свободен [Clearance >= 0.15м]
+VALIDATING --> COLLISION : Препятствие на векторе [Clearance < 0.15м]
+
+state VALIDATED {
+  note "Токен готов к отработке\nмоторным мозжечком (SPL1)" as N3
+}
+
+VALIDATED --> EXECUTING : Запуск контура кинематики (30-60 Гц)
+
+state EXECUTING {
+  note "Непрерывный расчет:\n* progress in [0.0 .. 1.0]\n* curvature & dynamic_clearance\n* Плавные приращения (Δvx, Δwz)" as N4
+}
+
+EXECUTING --> ELASTIC_WARPING : Локальная помеха (ножка стула / край стола)\nбез блокировки пути
+
+state ELASTIC_WARPING {
+  note "SPL1 деформирует b-вектор\nв сплайн Безье без вызова PRD1\nи без сброса глобальной цели" as N5
+}
+
+ELASTIC_WARPING --> EXECUTING : Огибающая дуга валидирована щитом
+ELASTIC_WARPING --> COLLISION : Деформация превысила лимит / Тупик
+
+EXECUTING --> COLLISION : Внезапное динамическое препятствие\n[Дистанция < 0.15м -> E-Stop]
+
+state COLLISION {
+  note "Принудительный E-Stop шасси.\nШтраф в функцию награды TCH1.\nЗапись в TRL1Log (outcome < 0.5).\nЗапрос перепланирования к PRD1." as N6
+}
+
+EXECUTING --> EXECUTED : Достижение цели\n[progress = 1.0 AND ||b_vec|| <= 0.05м]
+
+state EXECUTED {
+  note "Сплайс кристаллизован.\nВалентность закрыта.\nЗапись в TRL1Log (outcome >= 0.85).\nПереход к следующему токену BLOM." as N7
+}
+
+COLLISION --> [*] : Отбраковка токена (Drop)
+EXECUTED --> [*] : Успешная кристаллизация опыта
 
 @enduml

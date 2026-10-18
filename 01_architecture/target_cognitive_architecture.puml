@@ -1,13 +1,13 @@
 @startuml Target_Cognitive_Architecture
 skinparam componentStyle uml2
 skinparam backgroundColor #FEFEFE
-skinparam roundcorner 10
-skinparam defaultFontName "Segoe UI", Arial, sans-serif
+skinparam roundcorner 8
+skinparam defaultFontName sans-serif
 
 skinparam package {
-  BackgroundColor #F4F6F9
-  BorderColor #5A6B7C
-  FontColor #1C2833
+  BackgroundColor #F8F9FA
+  BorderColor #4A6572
+  FontColor #212121
   FontStyle bold
 }
 
@@ -15,78 +15,84 @@ skinparam component {
   BackgroundColor #FFFFFF
   BorderColor #34495E
   FontColor #2C3E50
-  ArrowColor #2980B9
+  ArrowColor #1F618D
 }
 
 title GTR1 Neuro-Symbolic Target Architecture (PRD1 Action-Tokens & SPL1 Dynamic Kinematics)
 
-package "1. Perception & World State (DTR Feed-Forward)" {
-  [Sensor Stream\n(PyBullet / Real RGB-D / TUM)] as SENS
-  [SLGW Sensor Linker\n(Kalman SE3 + Bilateral Depth Filter)] as SLGW
-  [MP10 Space\n(OctoMap 3D Occupancy Grid)] as MP10
-  [MP11 Manager\n(3D Object Invariants)] as MP11
-  [CNN1 + CLIP ML Service\n(YOLOv8 + ViT-B/32 on CUDA)] as ML_CNN
-
-  SENS -right-> SLGW : "RGB + Depth + T_cam\n(Independent Real-Time)"
-  SLGW -down-> ML_CNN : "RGB Frame (ZMQ REP 5555)"
-  ML_CNN -up-> MP11 : "3D BBoxes + 512-d CLIP Embeddings"
-  SLGW -right-> MP10 : "3D Point Cloud Voxelization"
-}
-
-package "2. Motivation & Needs" {
-  [MTV1 Motivator\n(Need Vector Injection)] as MTV1
-  note bottom of MTV1
-    Target: Semantic Class ("cup")
-    or Geometric 3D Waypoint
-    Calculates Distance-to-Zero
-  end note
-}
-
-package "3. Macro-Level Reasoning: Strategic Mind (ISSUE-10)" {
-  [PRD1 Action-Token Predictor\n(Autoregressive Trajectory Policy / Transformer)] as PRD1
-  [TRL1 Log\n(Episodic Memory of Past BLOMs)] as TRL1
-  [TCH1 Teacher\n(Continuous Outcome Reward Evaluator)] as TCH1
-
-  MTV1 -down-> PRD1 : "Target Need & Coordinates"
-  MP11 -down-> PRD1 : "Observed Object Anchors"
-  MP10 -down-> PRD1 : "Global Obstacle Context"
-  TRL1 <-> PRD1 : "Retrieve Similar Past Routes (Outcome >= 0.85)"
+package "DOM3: Spatial Environment & Perception (DTR Feed-Forward)" {
+  [Sensor Stream\n(PyBullet Real-Time / TUM RGB-D)] as SENS
+  [SLGW Sensor Linker Gateway\n(Kalman Filter SE3 + Bilateral Depth Filter)] as SLGW
+  [MP10 Space\n(OctoMap 3D Occupancy Grid / L-components)] as MP10
   
-  PRD1 -right-> [BLOM Event Chain] : "Predict Next Action Token\n(OPRN Sequence)"
+  SENS -right-> SLGW : "SensorFrame (RGB, Depth, T_cam)\n[Independent Real-Time Clock]"
+  SLGW -right-> MP10 : "Point Cloud 3D Voxelization\n(Resolution 0.05m)"
 }
 
-package "4. Micro-Level Kinematics: Motor Cerebellum (ISSUE-11)" {
-  [BLOM Event Chain] -down-> [SPL1 Dynamic Splicer] : "Active OPRN Token\n(Subject, b-vector, Target)"
-  [SPL1 Dynamic Splicer\n(Local Kinematic Policy / Actor-Critic)] as SPL1
+package "DOM4: Object Memory (DTR Crystallization)" {
+  [CNN1 + CLIP Vision Service\n(YOLOv8 + ViT-B/32 CUDA FP16)] as ML_CNN
+  [MP11 Object Manager\n(3D Invariants / R-components)] as MP11
   
-  MP10 -down-> SPL1 : "Local SDF / Distance Field (1.5m)"
-  
-  SPL1 -down-> [Kinematic Setpoints] : "Predict: (Δvx, Δwz, progress, curvature)"
-  SPL1 -right-> [Elastic Splice Warping] : "Local Arc Bypass\n(No PRD1 Replan Needed)"
+  SLGW -down-> ML_CNN : "DetectionRequest (RGB-D)\n[ZeroMQ REQ/REP 5555, Drop Latest]"
+  ML_CNN -right-> MP11 : "DetectionResponse\n(3D BBoxes + 512-d CLIP Vectors)"
+  MP10 -.-> MP11 : "Spatial Anchor Alignment"
 }
 
-package "5. Deterministic Safety Shield (Mathematical Barrier)" {
-  [Kinematic Setpoints] -down-> [Safety Guard\n(Clearance Envelope & Limits)] as GUARD
-  MP10 -down-> GUARD : "OctoMap Collision Raycast"
+package "DOM5: Motivation & Retro-Time Reasoning (RTR Drive)" {
+  [MTV1 Motivator\n(Need Vector / Distance-to-Zero Drive)] as MTV1
+  [PRD1 Action-Token Predictor\n(Autoregressive Policy / Transformer)] as PRD1
+  [TRL1 Log\n(Episodic Memory / Experience Replay)] as TRL1
+  [TCH1 Outcome Evaluator\n(Continuous Reward Function)] as TCH1
+  [TRN1 Background Trainer\n(Offline Experience Consolidation)] as TRN1
+
+  MTV1 -down-> PRD1 : "Active Goal UUID & Target Centroid"
+  MP11 -down-> PRD1 : "Observed Object Anchors (R-components)"
+  MP10 -down-> PRD1 : "Global Obstacle Context (SDF)"
+  TRL1 <-> PRD1 : "Episodic Recall (outcome >= 0.85)"
   
-  GUARD -down-> [Chassis Actuators\n(PyBullet / Real Motors)] : "VALIDATED KinematicCommand\n(Safe vx, wz)"
-  GUARD -.-> SPL1 : "COLLISION: Feedback Penalty & Retry"
+  TRL1 -down-> TRN1 : "Replay Buffer (Failed & Warped Runs)"
+  TRN1 -.-> PRD1 : "Fine-tuned Model Weights"
 }
 
-package "6. Synchronous Telemetry & Human-in-the-Loop" {
+package "DOM5: Behavioral Splicing & Micro-Kinematics (RTR Motor Execution)" {
+  [MP13 BLOM Schema\n(Behavioral Sequence of Action Tokens)] as BLOM
+  [SPL1 Dynamic Splicer\n(Motor Cerebellum / Kinematic Policy)] as SPL1
+  [Elastic b-vector Warping\n(Local Bezier / B-Spline Arc Bypass)] as WARP
+
+  PRD1 -right-> BLOM : "Autoregressive Generation\n<Subject, b-vec, Target>"
+  BLOM -down-> SPL1 : "Active OPRN Triplet\n(b-vector Setpoint)"
+  MP10 -down-> SPL1 : "Local 1.5m SDF Slice"
+  SPL1 <-> WARP : "Local Obstacle Deflection\n(Dynamic Curvature & Stand-off)"
+}
+
+package "Deterministic Safety Shield (Mathematical Barrier)" {
+  [Safety Shield\n(Clearance Cylinder & OctoMap Raycast)] as SHIELD
+  [Chassis Actuators\n(PyBullet Motors / Physical Base)] as MOTORS
+
+  SPL1 -down-> SHIELD : "Candidate Kinematics (vx, wz, dt)"
+  MP10 -down-> SHIELD : "Obstacle Raycast within 0.15m"
+  
+  SHIELD -down-> MOTORS : "VALIDATED KinematicCommand\n(Safe vx, wz)"
+  SHIELD -.-> SPL1 : "COLLISION: Feedback Penalty\n(Trigger Evasive Arc / Warping)"
+  SHIELD -.-> TCH1 : "Step Collision / Smoothness Feedback"
+  TCH1 -up-> TRL1 : "Record Trajectory Outcome Marker"
+}
+
+package "Synchronous Telemetry & Inspection (Zero-Lag Sync)" {
   [Telemetry Publisher\n(Unified TICK_BUNDLE Port 5556)] as TELEM
   [WebSocket Bridge\n(ws_bridge.py Port 8081)] as WS
-  [Three.js Dashboard & Inspector\n(WebGL UI Port 8000)] as UI
+  [Three.js Web Dashboard\n(WebGL HUD & Spatial Inspector Port 8000)] as UI
 
-  SENS -down-> TELEM : "frame_id, timestamp"
+  SENS -down-> TELEM : "tick_id, timestamp"
+  SHIELD -down-> TELEM : "Agent Pose (SE3), vx, wz"
   MP10 -down-> TELEM : "Voxels (Throttled 5-ticks)"
-  GUARD -down-> TELEM : "Robot Pose, vx, wz (Every tick)"
-  [BLOM Event Chain] -down-> TELEM : "OPRN Triplet Graph & Progress"
+  BLOM -down-> TELEM : "Active OPRN Path & Status"
+  MP11 -down-> TELEM : "Detected Invariants"
   MTV1 -down-> TELEM : "Active Goal & Status"
 
-  TELEM -right-> WS : "Atomic JSON Bundle"
-  WS -right-> UI : "Synchronous 0ms Jitter Telemetry"
-  UI -left-> MTV1 : "Dynamic Target (Click-to-Nav / Voice / Text)"
+  TELEM -right-> WS : "Atomic JSON TICK_BUNDLE (ZeroMQ PUB)"
+  WS -right-> UI : "WebSocket Broadcast (0ms Frame Lag)"
+  UI -left-> MTV1 : "Interactive Target Injection (Click-to-Nav / Text)"
 }
 
 @enduml
