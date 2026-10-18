@@ -3,7 +3,7 @@
 | Метаданные | Значение |
 | :--- | :--- |
 | **Документ** | Сквозная Спецификация Целевой Когнитивной Архитектуры GTR1 (End-to-End Target Specification) |
-| **Статус** | **APPROVED & ACTIVE (v1.0-TARGET)** 📐 |
+| **Статус** | **DRAFT SPECIFICATION (v1.0-TARGET)** 📝 |
 | **Методология** | **Specification-First Driven Development (SDD)** |
 | **Каноническая онтология** | Gativus Canonical Ontology (`DOM3`–`DOM5`, `MP10`–`MP13`, `GTR1`, `SLGW`, `PRD1`, `SPL1`, `MTV1`, `TRL1`, `TCH1`, `TRN1`) |
 | **Диаграммы (PlantUML)** | [target_cognitive_architecture.puml](target_cognitive_architecture.puml), [cognitive_cycle_sequence.puml](cognitive_cycle_sequence.puml), [state_machine.puml](state_machine.puml), [timing_dfd_package.puml](timing_dfd_package.puml), [deployment.puml](deployment.puml) |
@@ -126,7 +126,7 @@ package "DOM4: Object Memory (DTR Crystallization)" {
   MP10 -.-> MP11 : "Spatial Anchor Alignment"
 }
 
-package "DOM5: Motivation & Retro-Time Reasoning (RTR Drive)" {
+package "DOM5: Motivation & Reverse Transformation (RTR Drive)" {
   [MTV1 Motivator\n(Need Vector / Distance-to-Zero Drive)] as MTV1
   [PRD1 Action-Token Predictor\n(Autoregressive Policy / Transformer)] as PRD1
   [TRL1 Log\n(Episodic Memory / Experience Replay)] as TRL1
@@ -556,6 +556,17 @@ EXECUTED --> [*] : Успешная кристаллизация опыта
 
 ---
 
+
+### 9.3 Политика Предотвращения Очередей в ZeroMQ (ZMQ_CONFLATE & Lossy Drop)
+Для предотвращения накопления фазового сдвига между симулятором и ядром C++:
+* В сокете `SimStreamReceiver` (ZMQ SUB 5557) обязательно выставляется флаг `ZMQ_CONFLATE = 1`:
+  ```cpp
+  int conflate = 1;
+  zmq_setsockopt(zmq_sub_, ZMQ_CONFLATE, &conflate, sizeof(conflate));
+  ```
+  Это гарантирует, что в сокете хранится ровно **одно самое последнее сообщение**. Если C++ ядро занято обработкой или инференсом, устаревшие промежуточные кадры отбрасываются на уровне сокета, и ядро всегда получает актуальный срез физического мира без накопления очереди кадров из прошлого.
+
+
 ## 10. Топология Развертывания и Межпроцессный Обмен (IPC)
 
 ```plantuml
@@ -587,7 +598,7 @@ node "Host OS (Linux / WSL2 Ubuntu 22.04 LTS)" {
   package "C++ Cognitive Core Process: ./build/gtr1_main" {
     component "Sensor Linker Gateway\n(SLGW Node)" as SLGW
     component "Spatial & Object Memory\n(MP10 OctoMap + MP11 Invariants)" as MEM
-    component "Retro-Time Reasoner\n(MTV1 + PRD1 Action-Token Policy)" as PRD
+    component "RTR Cognitive Controller\n(MTV1 + PRD1 Action-Token Policy)" as PRD
     component "Dynamic Kinematics & Shield\n(SPL1 + Safety Shield)" as KIN
     component "Episodic Experience\n(TRL1 Log + TCH1 Evaluator)" as TRL
     component "Telemetry Publisher\n(Unified TICK_BUNDLE)" as TELEM

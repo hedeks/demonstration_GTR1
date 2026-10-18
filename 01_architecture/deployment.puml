@@ -26,7 +26,7 @@ node "Host OS (Linux / WSL2 Ubuntu 22.04 LTS)" {
   package "C++ Cognitive Core Process: ./build/gtr1_main" {
     component "Sensor Linker Gateway\n(SLGW Node)" as SLGW
     component "Spatial & Object Memory\n(MP10 OctoMap + MP11 Invariants)" as MEM
-    component "Retro-Time Reasoner\n(MTV1 + PRD1 Action-Token Policy)" as PRD
+    component "RTR Engine (Reverse Run)\n(MTV1 + PRD1 Action-Token Policy)" as PRD
     component "Dynamic Kinematics & Shield\n(SPL1 + Safety Shield)" as KIN
     component "Episodic Experience\n(TRL1 Log + TCH1 Evaluator)" as TRL
     component "Telemetry Publisher\n(Unified TICK_BUNDLE)" as TELEM

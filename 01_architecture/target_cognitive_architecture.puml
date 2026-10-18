@@ -38,7 +38,7 @@ package "DOM4: Object Memory (DTR Crystallization)" {
   MP10 -.-> MP11 : "Spatial Anchor Alignment"
 }
 
-package "DOM5: Motivation & Retro-Time Reasoning (RTR Drive)" {
+package "DOM5: Motivation & Reverse Transformation (RTR Drive)" {
   [MTV1 Motivator\n(Need Vector / Distance-to-Zero Drive)] as MTV1
   [PRD1 Action-Token Predictor\n(Autoregressive Policy / Transformer)] as PRD1
   [TRL1 Log\n(Episodic Memory / Experience Replay)] as TRL1
