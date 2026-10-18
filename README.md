@@ -168,6 +168,7 @@ demonstration GTR1/
 
 * **Реестр актуальных задач и бэклог:** [issues.md](issues.md)
 * **Фундаментальное описание архитектуры:** [description_GTR1.md](description_GTR1.md)
+* **Целевая когнитивная архитектура и PlantUML схемы:** [01_architecture/TARGET_ARCHITECTURE.md](01_architecture/TARGET_ARCHITECTURE.md)
 * **Архитектурный контракт MVP:** [01_architecture/ADR_001_MVP_baseline.md](01_architecture/ADR_001_MVP_baseline.md)
 * **Глоссарий терминов и понятий теории:** [glossary.md](glossary.md)
 * **Аудиты и история спринтов:**

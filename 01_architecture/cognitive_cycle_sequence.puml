@@ -1,0 +1,63 @@
+@startuml Cognitive_Cycle_Sequence
+autonumber
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName "Segoe UI", Arial, sans-serif
+skinparam sequenceMessageAlign center
+
+title Тактовый Когнитивный Цикл (Synchronous Cognitive Step Cycle)
+
+actor "Оператор (Web UI)" as User
+participant "Three.js Dashboard" as UI
+participant "PyBullet (Физический мир)" as Sim
+participant "SLGW (Сенсорный шлюз)" as SLGW
+participant "CNN1 (CUDA YOLO/CLIP)" as ML
+participant "MP10 / MP11 (Память мира)" as Mem
+participant "MTV1 (Мотиватор)" as MTV1
+participant "PRD1 (Action-Token Policy)" as PRD1
+participant "SPL1 (Dynamic Splicer)" as SPL1
+participant "Safety Guard (Символический щит)" as Shield
+
+== 1. Фаза восприятия реального времени (Perception) ==
+Sim -> SLGW : SensorFrame (RGB, Depth, Ground-Truth T_cam, frame_id)
+SLGW -> ML : DetectionRequest(RGB, Depth) [ZMQ 5555]
+activate ML
+ML --> SLGW : DetectionResponse (3D BBoxes + CLIP Embeddings) [< 40ms]
+deactivate ML
+SLGW -> Mem : Update MP10 (OctoMap) + Update MP11 (Invariants)
+
+== 2. Фаза мотивации и макро-рассуждения (Retro-Time Reasoning) ==
+User -> UI : Клик по цели / Ввод текста ("cup")
+UI -> MTV1 : TARGET: "cup" / NAV_POSE: (x, y)
+MTV1 -> Mem : Запрос координат целевого инварианта
+Mem --> MTV1 : Centroid target_pos
+MTV1 -> PRD1 : Инициация обратного хода RTR: Goal Need Vector
+
+alt Опыт найден в TRL1Log (outcome >= 0.85)
+    PRD1 -> PRD1 : Воспроизведение успешной цепочки BLOM
+else Генерация нового плана
+    PRD1 -> PRD1 : Авторегрессионное предсказание токенов OPRN (b-векторы)
+end
+PRD1 -> SPL1 : Активный токен OPRN(t): [agent_base -> b_vec -> target]
+
+== 3. Фаза микро-кинематики и символического щита (Execution) ==
+loop Контур кинематики (30-60 Гц)
+    SPL1 -> Mem : Запрос локального SDF (окрестность 1.5м)
+    SPL1 -> SPL1 : Предсказание гладких приращений (Δvx, Δwz, progress)
+    
+    SPL1 -> Shield : Проверка кандидата движения (vx, wz, dt)
+    Shield -> Mem : Raycast габаритного цилиндра (Clearance Envelope)
+    
+    alt Траектория безопасна
+        Shield -> Sim : KinematicCommand(vx, 0.0, wz, frame_id)
+        Shield -> SPL1 : Status = VALIDATED
+    else Опасная близость к препятствию (< 0.20м)
+        Shield -> Sim : KinematicCommand(0.0, 0.0, escape_wz, frame_id)
+        Shield -> SPL1 : Feedback = COLLISION (Trigger Elastic Warping)
+    end
+end
+
+== 4. Фаза атомарной синхронизации телеметрии (TICK_BUNDLE) ==
+SLGW -> UI : Unified TICK_BUNDLE (tick_id, Pose, Voxels[5-ticks], Path, BLOM, Goal)
+UI -> UI : Атомарная перерисовка кадра Three.js (0ms лаг, 60 FPS)
+
+@enduml
